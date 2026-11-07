@@ -1365,7 +1365,7 @@ if args.tab:
 app.setWindowIcon(QIcon(Style.ICON_FILE))
 
 # Status bar
-status_bar = Style.create_status_bar("1.2.0")
+status_bar = Style.create_status_bar("1.0.0")
 main_window.setStatusBar(status_bar)
 
 if __name__ == "__main__":

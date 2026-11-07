@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera_service  # noqa: E402
 import health  # noqa: E402
 
-VERSION = "1.2.0"
+VERSION = "1.0.0"
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 # Changes on every start: the UI and the Python client use it to see that the service restarted
 INSTANCE = f"{os.getpid()}-{int(time.time())}"

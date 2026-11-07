@@ -13,7 +13,7 @@ sudo /opt/picam_viewer/install.sh
 ```
 
 The release archive contains the built web UI (`web/dist`). For another version, replace
-`latest/download` with `download/v1.3.0` (a tag). A `git clone` works too, but then the web UI
+`latest/download` with `download/v1.0.0` (a tag). A `git clone` works too, but then the web UI
 must be built first (`cd web && npm ci && npm run build`, needs Node.js), else `/` shows the
 classic UI.
 
