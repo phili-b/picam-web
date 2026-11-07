@@ -14,8 +14,7 @@
 
   let container: HTMLDivElement;
   let canvas: HTMLCanvasElement;
-  let img: HTMLImageElement;
-  let streamSrc = $state("/stream.mjpg");
+  let frame: ImageBitmap | null = null;   // latest preview frame, decoded from the MJPEG stream
   let readout = $state("");
   let zoomText = $state("fit");
   const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;   // touch screen
@@ -28,8 +27,8 @@
   let roiDraft: { x: number; y: number; w: number; h: number } | null = null;
   let mouse: { x: number; y: number } | null = null;
 
-  const iw = () => img?.naturalWidth || 1;
-  const ih = () => img?.naturalHeight || 1;
+  const iw = () => frame?.width || 1;
+  const ih = () => frame?.height || 1;
   function viewRect(): [number, number, number, number] {
     const v = live.frames?.view;
     if (v) return v;
@@ -189,7 +188,7 @@
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const spr = screenPerRaw();
     ctx.imageSmoothingEnabled = spr < 3;
-    if (img.complete && img.naturalWidth) ctx.drawImage(img, ox, oy, iw() * s, ih() * s);
+    if (frame) ctx.drawImage(frame, ox, oy, iw() * s, ih() * s);
 
     if (crop && cropCanvas && spr >= RAW_IMAGE_FROM) {
       const [sx, sy] = rawToScreen(crop.x, crop.y);
@@ -242,12 +241,65 @@
     }
   }
 
-  // Reconnect the MJPEG stream when the service streams again after a restart
-  let lastState = "";
+  // The MJPEG stream, read with fetch and split into JPEGs by their Content-Length headers. Each
+  // JPEG is decoded with createImageBitmap. (An <img> with the stream as source is not used:
+  // drawing it on a canvas shows only the first frame in Firefox.)
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  const HEADER_END = enc.encode("\r\n\r\n");
+  function indexOf(buf: Uint8Array, pat: Uint8Array, from = 0) {
+    outer: for (let i = from; i <= buf.length - pat.length; i++) {
+      for (let j = 0; j < pat.length; j++) if (buf[i + j] !== pat[j]) continue outer;
+      return i;
+    }
+    return -1;
+  }
+  let decoding = false;
+  async function show(jpeg: Uint8Array<ArrayBuffer>) {
+    if (decoding) return;            // still decoding the previous frame: drop this one
+    decoding = true;
+    try {
+      const bmp = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
+      const first = !frame || frame.width !== bmp.width || frame.height !== bmp.height;
+      frame?.close();
+      frame = bmp;
+      if (first && fitted) resize();
+    } catch { /* a damaged frame: skip it */ }
+    decoding = false;
+  }
+  async function readStream(signal: AbortSignal) {
+    while (!signal.aborted) {
+      try {
+        const res = await fetch("/stream.mjpg", { signal, cache: "no-store" });
+        const reader = res.body!.getReader();
+        let buf = new Uint8Array(0);
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const joined = new Uint8Array(buf.length + value.length);
+          joined.set(buf); joined.set(value, buf.length);
+          buf = joined;
+          // complete parts: "--FRAME", Content-Type and Content-Length: n headers, a blank
+          // line, n bytes of JPEG, CRLF
+          for (;;) {
+            const end = indexOf(buf, HEADER_END);
+            if (end < 0) break;
+            const m = /Content-Length:\s*(\d+)/i.exec(dec.decode(buf.subarray(0, end)));
+            const start = end + HEADER_END.length;
+            if (!m) { buf = buf.slice(start); continue; }
+            const n = Number(m[1]);
+            if (buf.length < start + n) break;
+            show(buf.slice(start, start + n));
+            buf = buf.slice(start + n);
+          }
+        }
+      } catch { /* service restarting, network gone: retry */ }
+      if (!signal.aborted) await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
   $effect(() => {
-    const st = live.health?.state ?? "offline";
-    if (st === "streaming" && lastState && lastState !== "streaming") streamSrc = `/stream.mjpg?${Date.now()}`;
-    lastState = st;
+    const ctl = new AbortController();
+    readStream(ctl.signal);
+    return () => ctl.abort();
   });
 
   $effect(() => {
@@ -274,7 +326,6 @@
     onpointerleave={() => { mouse = null; readout = ""; }}
     ondblclick={fit}
   ></canvas>
-  <img bind:this={img} src={streamSrc} alt="" class="source" onload={() => fitted && resize()} />
   <div class="hud">
     <span>{zoomText}</span>
     <span data-testid="readout">{readout}</span>
@@ -284,11 +335,8 @@
 </div>
 
 <style>
-  .viewer { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; background: #000; border-radius: 4px; isolation: isolate; }
+  .viewer { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; background: #000; border-radius: 4px; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
-  /* The MJPEG source must stay in the document, and visible to the browser, to keep decoding it:
-     Firefox stops updating a 1px or transparent image. It is full size under the opaque canvas. */
-  .source { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: -1; pointer-events: none; }
   .hud { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 16px; padding: 4px 10px;
     font-size: 12px; color: var(--text); background: rgba(20, 22, 20, 0.7); pointer-events: none; }
   .hint { margin-left: auto; color: var(--grey); }
