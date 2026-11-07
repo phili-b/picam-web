@@ -36,13 +36,29 @@ def setup():
         sensor_regs.open_driver_controls = fake_subdev.FakeSubdev
     state = os.environ.setdefault("FAKE_CAMERA_STATE", os.path.join(tempfile.gettempdir(), "picam_fake"))
     os.makedirs(state, exist_ok=True)
+    fake_boot_dir(os.path.join(state, "boot"))
     try:
         import camera_service
+        import camera_overlay
         import health
         camera_service.SETTINGS_FILE = os.path.join(state, "picam_web.json")
         health.RECOVERY_FILE = os.path.join(state, "picam_web_recovery.json")
+        # the camera model helper runs directly (no sudo) on the fake boot folder
+        camera_overlay.HELPER_CMD = [sys.executable, os.path.join(ROOT, "tools", "picam-camera-overlay")]
     except ImportError:  # the desktop viewer does not need the web service modules
         pass
+
+
+def fake_boot_dir(boot):
+    """A /boot/firmware stand-in: a few overlays and a config.txt (PICAM_BOOT_DIR points at it)."""
+    os.makedirs(os.path.join(boot, "overlays"), exist_ok=True)
+    for name in ("fakecam", "duocam", "imx219", "imx477", "imx708", "ov5647", "vc4-kms-v3d"):
+        open(os.path.join(boot, "overlays", name + ".dtbo"), "a").close()
+    config = os.path.join(boot, "config.txt")
+    if not os.path.exists(config):
+        with open(config, "w") as fh:
+            fh.write("camera_auto_detect=1\ndtoverlay=vc4-kms-v3d\n\n[all]\ndtoverlay=fakecam\n")
+    os.environ.setdefault("PICAM_BOOT_DIR", boot)
 
 
 def main():

@@ -103,6 +103,14 @@ export function errorText(data: unknown, fallback: string): string {
   return fallback;
 }
 
+/** The camera model: the sensor overlay (dtoverlay=) in config.txt; applies after a reboot. */
+export interface CameraOverlay {
+  available: boolean;
+  overlays: string[];
+  current: { overlay: string | null; port: "cam0" | "cam1"; mono: boolean; line: string | null; camera_auto_detect: boolean } | null;
+  reboot_pending: boolean;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
     method,
@@ -197,6 +205,9 @@ export const api = {
   setMode: (index: number) => post<{ mode: number; rois: Roi[] }>("/api/mode", { index }),
   tuning: () => get<{ current: string | null; files: string[] }>("/api/tuning"),
   setTuning: (path: string | null) => post<{ instance: string }>("/api/tuning", { path }),
+  cameraOverlay: () => get<CameraOverlay>("/api/camera_overlay"),
+  setCameraOverlay: (overlay: string, port: "cam0" | "cam1", mono: boolean) =>
+    put<CameraOverlay>("/api/camera_overlay", { overlay, port, mono }),
 
   rois: () => get<Roi[]>("/api/rois"),
   setRois: (rois: Roi[]) => put<Roi[]>("/api/rois", rois.map(({ name, x, y, w, h }) => ({ name, x, y, w, h }))),

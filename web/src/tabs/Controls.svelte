@@ -4,6 +4,7 @@
   import { live, reloadInfo } from "../lib/live.svelte";
   import AllControls from "../components/AllControls.svelte";
   import TuningFile from "../components/TuningFile.svelte";
+  import CameraModel from "../components/CameraModel.svelte";
 
   let ae = $state(true);
   let exposure = $state(10000);   // us
@@ -155,4 +156,10 @@
 <details>
   <summary>Tuning file</summary>
   <TuningFile />
+</details>
+
+<!-- Open by itself when there is no camera: a wrong camera model is the usual reason -->
+<details open={live.health?.state === "failed"}>
+  <summary>Camera model (dtoverlay)</summary>
+  <CameraModel />
 </details>

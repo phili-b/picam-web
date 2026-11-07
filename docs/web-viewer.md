@@ -45,6 +45,7 @@ values are those of the last analysed frame (4 per second).
 | Forget kept controls | the next start uses the defaults again |
 | All libcamera controls | every other control with its range and default (hover a row); edit values, then **Apply changed** sends only the changed ones. Lists are comma-separated |
 | Tuning file | **default** (libcamera's file for the sensor) or an installed file; files for another sensor or the other colour type are marked. **Restart with this file** checks it, restarts the camera and reloads the page |
+| Camera model (dtoverlay) | the sensor overlay in `/boot/firmware/config.txt`: every camera sensor overlay installed (`imx*`, `ov*`, `vd*`, `ar0*` and the sensors of [sensor plugins](registers.md#sensor-plugins)), the connector (CAM1, the default, or CAM0) and the mono option. **Save** rewrites the camera's `dtoverlay=` line under `[all]` (keeping a copy in `config.txt.picam-web.bak`); **Reboot now** loads it. Opens by itself when the camera cannot be opened, since a wrong model is the usual reason, and works without a camera |
 
 ### Capture
 

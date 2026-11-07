@@ -23,6 +23,7 @@ from starlette.background import BackgroundTask
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera_service  # noqa: E402
+import camera_overlay  # noqa: E402
 import health  # noqa: E402
 
 VERSION = "1.0.0"
@@ -212,7 +213,26 @@ class Unavailable:
         pass
 
 
-ALWAYS_AVAILABLE = ("/api/health", "/api/reset")
+# Camera model (dtoverlay) ---------------------------------------------------------------------
+@app.get("/api/camera_overlay", summary="Camera model: the sensor overlay in config.txt and the installed ones")
+def camera_overlay_get():
+    try:
+        return camera_overlay.status()
+    except RuntimeError as e:
+        _bad(e)
+
+
+@app.put("/api/camera_overlay", summary="Set the camera model (sensor overlay); applies after a reboot")
+def camera_overlay_set(overlay: str = Body(..., embed=True), port: str = Body("cam1", embed=True),
+                       mono: bool = Body(False, embed=True)):
+    try:
+        return camera_overlay.set_overlay(overlay, port, mono)
+    except (ValueError, RuntimeError) as e:
+        _bad(e)
+
+
+# Also without a camera: a wrong camera model is fixed from the web UI
+ALWAYS_AVAILABLE = ("/api/health", "/api/reset", "/api/camera_overlay")
 
 
 @app.middleware("http")

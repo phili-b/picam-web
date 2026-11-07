@@ -1,0 +1,68 @@
+#!/usr/bin/python3
+"""Set the camera sensor overlay in /boot/firmware/config.txt (run as root, through sudo).
+
+    picam-camera-overlay OLD NEW PORT MONO
+
+OLD   the overlay to replace ("-" for none); its dtoverlay= lines are removed
+NEW   the overlay to use (must exist as overlays/NEW.dtbo)
+PORT  cam1 (the default connector) or cam0
+MONO  1 to add the "mono" parameter, else 0
+
+install.sh installs this as /usr/local/sbin/picam-camera-overlay and allows the service user to
+run it with sudo. It only touches dtoverlay= lines of OLD and NEW, keeps a copy of the previous
+file in config.txt.picam-web.bak and writes the new one atomically. The change applies after a
+reboot.
+"""
+
+import os
+import re
+import shutil
+import sys
+import tempfile
+
+BOOT = os.environ.get("PICAM_BOOT_DIR", "/boot/firmware")  # sudo resets the environment
+NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def fail(message):
+    sys.exit(f"picam-camera-overlay: {message}")
+
+
+def main(argv):
+    if len(argv) != 4:
+        fail(__doc__.strip().splitlines()[2].strip())
+    old, new, port, mono = argv
+    for name in {new} | ({old} - {"-"}):
+        if not NAME.match(name) or not os.path.isfile(os.path.join(BOOT, "overlays", name + ".dtbo")):
+            fail(f"no overlay {name!r} in {BOOT}/overlays")
+    if port not in ("cam0", "cam1") or mono not in ("0", "1"):
+        fail("PORT must be cam0 or cam1, MONO 0 or 1")
+
+    config = os.path.join(BOOT, "config.txt")
+    with open(config) as fh:
+        lines = fh.read().splitlines()
+    drop = re.compile(r"^\s*dtoverlay=(%s)(,.*)?\s*$" % "|".join(re.escape(n) for n in {old, new} - {"-"}))
+    lines = [line for line in lines if not drop.match(line)]
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    params = [new] + (["cam0"] if port == "cam0" else []) + (["mono"] if mono == "1" else [])
+    # append under [all]: add the section header unless the file already ends in [all] (or has none)
+    headers = [line.strip().lower() for line in lines if line.strip().startswith("[")]
+    if headers and headers[-1] != "[all]":
+        lines += ["", "[all]"]
+    lines.append("dtoverlay=" + ",".join(params))
+
+    shutil.copy2(config, config + ".picam-web.bak")
+    fd, tmp = tempfile.mkstemp(dir=BOOT, prefix=".config.txt.")
+    with os.fdopen(fd, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.chmod(tmp, os.stat(config).st_mode & 0o777)
+    os.replace(tmp, config)
+    print("dtoverlay=" + ",".join(params))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -71,7 +71,9 @@ temporal noise and FPN that follow `ExposureTime` and `AnalogueGain`. `FAKE_CAME
 an RGGB sensor, `FAKE_CAMERA_MODEL=duocam` (or `quadcam`) a sensor with register banks and two (four) contexts, and
 `FAKE_DRIVER_CONTROLS=0` for register access over I2C instead of the simulated driver controls.
 Settings go to a temporary folder, not `~/.config`. Camera resets and tuning file switches restart
-the simulated service as on the Pi. Tuning files are not simulated (the list is empty on a PC).
+the simulated service as on the Pi. Tuning files are not simulated (the list is empty on a PC). The
+camera model uses a fake boot folder (`PICAM_BOOT_DIR`, in the temporary folder) with a few overlays
+and a `config.txt`, changed by the real helper script without sudo.
 
 The simulator is for developing the UI and the API; it does not replace the hardware tests below.
 

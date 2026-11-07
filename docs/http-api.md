@@ -99,6 +99,15 @@ whose plugin profile has a banked register map (context 0 up to the number of co
 | GET | `/api/tuning` | | `{"current": path or null, "files": [installed tuning files for this platform]}` |
 | POST | `/api/tuning` | body: `{"path": "/usr/share/libcamera/ipa/rpi/pisp/<file>.json"}`, or `{"path": null}` for the sensor's default file | 202 `{"restarting": true, "tuning_file": path, "instance": ...}`; the service checks that the file loads for this sensor (400 if not) and restarts with it a moment later |
 
+### Camera model
+
+| Method | Path | Parameters | Response |
+|--------|------|------------|----------|
+| GET | `/api/camera_overlay` | | `{"available", "overlays": [installed camera sensor overlays], "current": {"overlay", "port" ("cam0"/"cam1"), "mono", "line", "camera_auto_detect"}, "reboot_pending"}`; `available` false (and `current` null) without `/boot/firmware/config.txt` |
+| PUT | `/api/camera_overlay` | body: `{"overlay": "imx477", "port": "cam1", "mono": false}` | as GET; 400 for an overlay that is not installed or not a camera sensor. Applies after a reboot (`POST /api/reset {"action": "reboot"}`) |
+
+Both also answer when the camera cannot be opened.
+
 The installed tuning files are looked up in `/usr/local/share/libcamera/ipa/rpi/<platform>/` and
 `/usr/share/libcamera/ipa/rpi/<platform>/`, with platform `pisp` (Pi 5) or `vc4` (Pi 4).
 

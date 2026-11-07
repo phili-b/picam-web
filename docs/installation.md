@@ -21,7 +21,10 @@ classic UI.
 
 1. installs the apt packages listed in `requirements-apt.txt`;
 2. installs `systemd/picam-web.service` as `/etc/systemd/system/picam-web.service`, enables it and,
-   on a running system (not in a chroot), restarts it;
+   on a running system (not in a chroot), restarts it; installs `tools/picam-camera-overlay` as
+   `/usr/local/sbin/picam-camera-overlay` (root-owned) and `/etc/sudoers.d/picam-web`, which lets the
+   service user run only `systemctl reboot` and that helper (it rewrites the camera's `dtoverlay=`
+   line in `config.txt`) with sudo;
 3. installs two menu entries in `/usr/share/applications/`: `picam_web.desktop` (opens the web UI at
    `http://localhost/`) and `picam_viewer.desktop` (the desktop viewer through `run_desktop.sh`);
 4. copies the web UI shortcut to the user's `~/Desktop` (and removes the desktop viewer shortcut

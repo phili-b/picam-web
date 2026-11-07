@@ -25,6 +25,8 @@ apt-get install -y $(grep -v -E '^\s*(#|$)' requirements-apt.txt)
 chmod 755 picam_viewer/run_desktop.sh picam_web/server.py desktop/open_web_ui.sh
 
 echo "### Installing the web service"
+# Root-owned copy of the camera model helper: the service may run only this one with sudo
+install -m 755 -o root -g root tools/picam-camera-overlay /usr/local/sbin/picam-camera-overlay
 fill systemd/picam-web.service > /etc/systemd/system/picam-web.service
 fill systemd/picam-web.sudoers > /etc/sudoers.d/picam-web
 chmod 440 /etc/sudoers.d/picam-web

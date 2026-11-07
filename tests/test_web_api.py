@@ -260,5 +260,23 @@ def test_unavailable_service():
             assert c.get("/").status_code == 200
             assert c.get("/api/health").json()["state"] == "failed"
             assert c.get("/api/info").status_code == 503
+            # a wrong camera model can still be fixed
+            assert c.get("/api/camera_overlay").status_code == 200
     finally:
         server.service = saved
+
+
+def test_camera_overlay(client, tmp_path, monkeypatch):
+    import camera_overlay
+    (tmp_path / "overlays").mkdir()
+    for name in ("fakecam", "imx477", "vc4-kms-v3d"):
+        (tmp_path / "overlays" / f"{name}.dtbo").write_bytes(b"")
+    (tmp_path / "config.txt").write_text("[all]\ndtoverlay=fakecam\n")
+    monkeypatch.setattr(camera_overlay, "BOOT", str(tmp_path))
+    monkeypatch.setenv("PICAM_BOOT_DIR", str(tmp_path))
+    s = client.get("/api/camera_overlay").json()
+    assert s["overlays"] == ["fakecam", "imx477"] and s["current"]["overlay"] == "fakecam"
+    s = client.put("/api/camera_overlay", json={"overlay": "imx477", "port": "cam0", "mono": True}).json()
+    assert s["current"]["line"] == "dtoverlay=imx477,cam0,mono"
+    assert client.put("/api/camera_overlay", json={"overlay": "vc4-kms-v3d"}).status_code == 400
+    assert client.put("/api/camera_overlay", json={"overlay": "imx477", "port": "cam2"}).status_code == 400
