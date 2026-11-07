@@ -1,0 +1,42 @@
+site_name: Picam-web
+site_description: Camera viewer, web UI and Python API for evaluating camera sensors on Raspberry Pi
+repo_name: picam-web
+site_url: https://phili-b.github.io/picam-web/
+repo_url: https://github.com/phili-b/picam-web
+edit_uri: ""
+
+theme:
+  name: material
+  logo: assets/icon.png
+  favicon: assets/icon.png
+  palette:
+    scheme: slate
+    primary: custom
+    accent: custom
+  features:
+    - navigation.sections
+    - content.code.copy
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Overview: index.md
+  - Installation: installation.md
+  - Web viewer: web-viewer.md
+  - Python API: python-api.md
+  - Examples: examples.md
+  - HTTP API: http-api.md
+  - Desktop viewer: desktop-viewer.md
+  - Noise analysis: noise.md
+  - Registers: registers.md
+  - Raw data: raw-data.md
+  - Development: development.md

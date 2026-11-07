@@ -1,0 +1,14 @@
+# Debian / Raspberry Pi OS packages needed by the viewer and the tools
+python3-picamera2
+python3-pyqt5
+python3-pyqt5.qtopengl
+python3-opengl
+python3-numpy
+python3-opencv
+python3-pil
+python3-smbus2
+python3-rpi-lgpio
+ffmpeg
+python3-fastapi
+python3-uvicorn
+python3-simplejpeg

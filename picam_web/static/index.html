@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Picam-web</title>
+<link rel="icon" href="/static/icon.png">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <img src="/static/icon.png" alt="" class="icon">
+  <div class="title">Picam-web <span class="sub">for Raspberry Pi</span></div>
+  <div id="sensor" class="sub"></div>
+  <div class="spacer"></div>
+  <a href="/docs" target="_blank" class="sub">API</a>
+</header>
+<main>
+  <section id="view">
+    <div id="health" class="health"></div>
+    <div id="frame">
+      <img id="stream" src="/stream.mjpg" alt="live preview">
+      <canvas id="overlay"></canvas>
+    </div>
+    <div id="statusline"></div>
+  </section>
+  <aside>
+    <nav id="tabs">
+      <button data-tab="controls" class="active">Controls</button>
+      <button data-tab="capture">Capture</button>
+      <button data-tab="frames">Frames</button>
+      <button data-tab="histogram">Histogram</button>
+      <button data-tab="roi">ROI</button>
+      <button data-tab="noise">Noise</button>
+      <button data-tab="registers">Registers</button>
+      <button data-tab="ispstats">ISP Stats</button>
+      <button data-tab="camera">Camera</button>
+    </nav>
+
+    <div class="tab active" id="tab-controls">
+      <div class="row"><label>Sensor mode</label><select id="mode"></select></div>
+      <div class="row"><label>Auto exposure</label><input type="checkbox" id="ae"></div>
+      <div class="row"><label>Exposure [us]</label><input type="number" id="exposure" min="1"></div>
+      <div class="row"><label>Analogue gain</label><input type="number" id="gain" step="0.1" min="1"></div>
+      <div class="row"><label></label><button id="apply-basic">Apply</button>
+        <label class="inline"><input type="checkbox" id="remember"> keep after restart</label>
+        <button id="forget-controls" title="Start with the default controls after the next restart">Forget kept</button></div>
+      <h3>All libcamera controls</h3>
+      <div id="all-controls"></div>
+      <button id="apply-all">Apply changed</button>
+      <h3>Tuning file</h3>
+      <select id="tuning"></select>
+      <button id="apply-tuning">Restart with this tuning file</button>
+      <div id="controls-msg" class="msg"></div>
+    </div>
+
+    <div class="tab" id="tab-capture">
+      <div class="row"><label>Frames (npz)</label><input type="number" id="cap-count" value="10" min="1" max="1000"></div>
+      <div class="buttons">
+        <button class="button" data-download="/api/capture/raw?format=npz" data-name="raw.npz">Raw frames (.npz, DN + metadata)</button>
+        <button class="button" data-download="/api/capture/raw?format=tiff" data-name="frame.tiff">Raw frame (.tiff, DN)</button>
+        <button class="button" data-download="/api/capture/raw?format=dng" data-name="frame.dng">Raw frame (.dng)</button>
+        <button class="button" data-download="/api/snapshot.jpg" data-name="snapshot.jpg">Preview (.jpg)</button>
+      </div>
+      <div id="capture-msg" class="msg"></div>
+      <p class="note">Downloads go to the browser's download folder. From Python use
+        <code>picam_client.Camera</code>.</p>
+    </div>
+
+    <div class="tab" id="tab-frames">
+      <table id="frames-table"></table>
+      <button id="frames-reset">Reset counters</button>
+      <p class="note">Drops are gaps in SensorTimestamp longer than 1.5 frame durations.</p>
+    </div>
+
+    <div class="tab" id="tab-histogram">
+      <canvas id="hist" height="220"></canvas>
+      <label class="inline"><input type="checkbox" id="hist-log" checked> logarithmic</label>
+      <div id="hist-info" class="msg"></div>
+    </div>
+
+    <div class="tab" id="tab-roi">
+      <table id="roi-table"><thead><tr><th>Name</th><th>x</th><th>y</th><th>w</th><th>h</th><th>Mean</th><th></th></tr></thead><tbody></tbody></table>
+      <button id="roi-add">Add</button> <button id="roi-save">Apply</button>
+      <div id="roi-msg" class="msg"></div>
+      <p class="note">Raw pixels of the current sensor mode. Means are live, in DN.</p>
+    </div>
+
+    <div class="tab" id="tab-noise">
+      <div class="row"><label>Frames</label><input type="number" id="noise-frames" value="16" min="1" max="1000"></div>
+      <div class="row"><label>ROI</label><select id="noise-roi"><option value="">full frame</option></select></div>
+      <button id="noise-run">Capture &amp; analyse</button>
+      <table id="noise-table"></table>
+      <div id="noise-msg" class="msg"></div>
+    </div>
+
+    <div class="tab" id="tab-registers">
+      <div id="reg-sensor" class="msg"></div>
+      <div class="row"><label>Known</label><select id="reg-known"><option value="">(address below)</option></select></div>
+      <div class="row"><label>Address</label><input id="reg-addr" value="0x0000"></div>
+      <div class="row"><label>Bytes</label><select id="reg-bytes"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+      <div class="row banked"><label>Bank</label><select id="reg-bank"><option value="">current</option><option>0</option><option>1</option></select></div>
+      <div class="row banked"><label>Context</label><select id="reg-ctx"><option value="">current</option><option value="0">A</option><option value="1">B</option></select></div>
+      <div class="row"><label>Value</label><input id="reg-value" value="0x00"></div>
+      <button id="reg-read">Read</button> <button id="reg-write">Write</button>
+      <div class="row"><label>Dump from</label><input id="dump-start" value="0x0000"> <input type="number" id="dump-count" value="64" min="1" max="4096"></div>
+      <button id="reg-dump">Dump</button>
+      <p class="note">Writes bypass the driver, which may overwrite them on a mode switch.</p>
+      <pre id="reg-log"></pre>
+    </div>
+
+    <div class="tab" id="tab-ispstats">
+      <label class="inline"><input type="checkbox" id="isp-enable"> Enable ISP statistics (StatsOutputEnable)</label>
+      <h3>AGC histogram</h3>
+      <canvas id="isp-hist" height="150"></canvas>
+      <div class="maps"><div><h3>Zone means 32x32</h3><canvas id="isp-zones" width="32" height="32"></canvas></div>
+        <div><h3>Focus FoM 8x8</h3><canvas id="isp-focus" width="8" height="8"></canvas></div></div>
+      <div id="isp-msg" class="msg"></div>
+    </div>
+
+    <div class="tab" id="tab-camera">
+      <h3>Recovery</h3>
+      <div class="buttons-row">
+        <button data-reset="stream" title="Stop and start the stream (about 1 s)">Restart stream</button>
+        <button data-reset="camera" title="Close the camera and open it again in a fresh process (about 5 s)">Reset camera</button>
+        <button data-reset="reboot" title="Reboot the Raspberry Pi: power-cycles the sensor">Reboot Pi</button>
+      </div>
+      <label class="inline"><input type="checkbox" id="auto-reboot"> Reboot automatically when the camera cannot be recovered</label>
+      <pre id="health-history"></pre>
+      <h3>Camera</h3>
+      <table id="camera-table"></table>
+      <h3>Sensor modes</h3>
+      <table id="modes-table"></table>
+      <h3>Latest metadata</h3>
+      <pre id="metadata"></pre>
+    </div>
+  </aside>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

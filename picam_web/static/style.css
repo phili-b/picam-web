@@ -1,0 +1,50 @@
+/* Dark look with a green accent, as the desktop viewer: charcoal, green #9ACD56, grey #91969D */
+:root { --bg: #353835; --base: #2b2e2b; --button: #414441; --text: #dcdeda; --grey: #91969d; --green: #9acd56; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", "Lexend", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+header { display: flex; align-items: center; gap: 12px; padding: 6px 14px; background: var(--base); border-bottom: 1px solid var(--green); }
+header .icon { height: 32px; }
+header .logo { height: 22px; }
+.title { font-size: 17px; }
+.sub { color: var(--grey); font-size: 13px; }
+.spacer { flex: 1; }
+a { color: var(--green); }
+main { flex: 1; display: flex; min-height: 0; }
+#view { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; min-width: 0; }
+#frame { position: relative; max-width: 100%; max-height: calc(100vh - 110px); }
+#stream { display: block; max-width: 100%; max-height: calc(100vh - 110px); background: #000; }
+#overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+#statusline { color: var(--grey); font-size: 13px; margin-top: 6px; }
+aside { width: 470px; background: var(--base); display: flex; flex-direction: column; border-left: 1px solid var(--button); }
+#tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px; border-bottom: 1px solid var(--button); }
+#tabs button { background: transparent; border: none; color: var(--text); padding: 5px 8px; cursor: pointer; border-radius: 3px; }
+#tabs button.active { color: var(--green); background: var(--button); }
+.tab { display: none; padding: 10px 14px; overflow-y: auto; flex: 1; }
+.tab.active { display: block; }
+.row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.row > label:first-child { width: 120px; color: var(--grey); }
+label.inline { color: var(--grey); }
+input, select, button, .button { background: var(--button); color: var(--text); border: 1px solid #555a55; border-radius: 3px; padding: 4px 8px; font: inherit; }
+input[type=number], input:not([type]) { width: 120px; }
+button:hover, .button:hover { border-color: var(--green); cursor: pointer; }
+.button { display: block; width: 100%; text-decoration: none; margin: 6px 0; text-align: center; }
+button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: default; border-color: #555a55; }
+h3 { color: var(--grey); font-size: 13px; font-weight: normal; margin: 14px 0 6px; border-bottom: 1px solid var(--button); }
+table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+td, th { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--button); }
+th { color: var(--grey); font-weight: normal; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+#roi-table input { width: 60px; }
+#all-controls .row > label:first-child { width: 190px; }
+canvas#hist, canvas#isp-hist { width: 100%; background: #141614; }
+.maps { display: flex; gap: 14px; }
+.maps canvas { width: 200px; height: 200px; image-rendering: pixelated; background: #141614; }
+pre { background: #141614; padding: 8px; font-size: 12px; max-height: 300px; overflow: auto; }
+.msg { color: var(--grey); margin: 6px 0; white-space: pre-wrap; }
+.note { color: var(--grey); font-size: 12px; }
+.error { color: #ff7070; }
+.health { width: 100%; padding: 6px 10px; margin-bottom: 6px; border-radius: 3px; display: none; }
+.health.recovering, .health.starting, .health.stalled { display: block; background: #4a4020; border: 1px solid #c8a030; }
+.health.failed { display: block; background: #4a2020; border: 1px solid #ff7070; }
+.health button { margin-left: 8px; }
+.buttons-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }

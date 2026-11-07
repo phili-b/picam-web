@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Picam-web
+Comment=Camera sensor viewer (web UI, also over the USB-C network)
+Exec=@VIEWER_DIR@/desktop/open_web_ui.sh
+Icon=@VIEWER_DIR@/picam_viewer/artwork/icon.png
+Terminal=false
+Categories=Graphics;Photography;
+StartupWMClass=picam-web

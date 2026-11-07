@@ -1,0 +1,45 @@
+/* Dark look with a green accent, as the classic UI and the desktop viewer */
+:root { --bg: #353835; --base: #2b2e2b; --button: #414441; --text: #dcdeda; --grey: #91969d; --green: #9acd56; }
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", "Lexend", system-ui, sans-serif; }
+#app { display: flex; flex-direction: column; }
+a { color: var(--green); }
+.sub { color: var(--grey); font-size: 13px; }
+input, select, button { background: var(--button); color: var(--text); border: 1px solid #555a55; border-radius: 3px;
+  padding: 4px 8px; font: inherit; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--green); }
+:disabled { opacity: 0.5; cursor: default; }
+input[type=number] { width: 110px; }
+input[type=range] { flex: 1; accent-color: var(--green); padding: 0; }
+input[type=checkbox] { accent-color: var(--green); }
+.row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.row > label:first-child, .row > span:first-child { width: 120px; flex: none; color: var(--grey); }
+label.inline { color: var(--grey); }
+.msg { color: var(--grey); margin: 6px 0; white-space: pre-wrap; }
+.note { color: var(--grey); font-size: 12px; }
+.error { color: #ff7070; }
+/* Phones: page scrolls, big touch targets, 16 px fields (iOS zooms into smaller ones), rows wrap */
+@media (max-width: 900px) {
+  html, body, #app { height: auto; min-height: 100%; }
+  input, select, button { padding: 9px 10px; font-size: 16px; min-height: 40px; }
+  input[type=checkbox] { width: 22px; height: 22px; min-height: 0; }
+  input[type=range] { min-width: 120px; min-height: 32px; }
+  input[type=number] { width: 100px; }
+  .row { flex-wrap: wrap; }
+  .row > label:first-child, .row > span:first-child { width: 100%; }
+  select { max-width: 100%; }
+  table { display: block; overflow-x: auto; }
+  pre { max-width: 100%; }
+}
+h3 { color: var(--grey); font-size: 13px; font-weight: normal; margin: 16px 0 6px; border-bottom: 1px solid var(--button); }
+details { margin: 12px 0; border-top: 1px solid var(--button); padding-top: 6px; }
+summary { cursor: pointer; color: var(--grey); padding: 4px 0; }
+summary:hover { color: var(--text); }
+button.link { background: none; border: none; padding: 0; color: var(--green); text-decoration: underline; font-size: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+td, th { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--button); }
+th { color: var(--grey); font-weight: normal; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+pre { background: #141614; padding: 8px; font-size: 12px; max-height: 300px; overflow: auto; margin: 6px 0; }

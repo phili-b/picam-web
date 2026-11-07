@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+site/
+public/
+examples/output/
+
+# Sensor plugins (private sensor data): only the README is part of the repository
+picam_viewer/sensor_plugins/*
+!picam_viewer/sensor_plugins/README.md
+web/node_modules/
+web/dist/
+.pytest_cache/

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Picam-web (desktop viewer)
+Comment=Camera sensor viewer for Raspberry Pi
+Exec=@VIEWER_DIR@/picam_viewer/run_desktop.sh
+Icon=@VIEWER_DIR@/picam_viewer/artwork/icon.png
+Terminal=true
+Categories=Graphics;Photography;
