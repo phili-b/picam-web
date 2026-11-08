@@ -1,7 +1,7 @@
 {
   "name": "picam-web-ui",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Picam-web - web UI (Svelte). Served by picam_web/server.py at /.",
   "type": "module",
   "scripts": {

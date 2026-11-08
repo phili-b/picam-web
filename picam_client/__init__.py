@@ -22,7 +22,7 @@ import urllib.request
 import numpy as np
 
 __all__ = ["Camera", "CameraError"]
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 
 class CameraError(RuntimeError):
