@@ -29,6 +29,7 @@
     <div class="sub" data-testid="sensor">{model} · {live.info.raw.format} {live.info.raw.size.join("x")}</div>
   {/if}
   <div class="spacer"></div>
+  <a href="https://phili-b.github.io/picam-web/" target="_blank" rel="noopener" class="sub">Docs</a>
   <a href="/docs" target="_blank" class="sub">API</a>
 </header>
 
@@ -55,6 +56,7 @@
   .icon { height: 32px; }
   .title { font-size: 17px; }
   .spacer { flex: 1; }
+  header a { flex: none; }
   main { flex: 1; display: flex; min-height: 0; }
   .view { flex: 1; display: flex; flex-direction: column; padding: 10px; min-width: 0; }
   .status { color: var(--grey); font-size: 13px; margin-top: 6px; }

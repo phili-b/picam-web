@@ -6,7 +6,7 @@ shortcut **Picam-web** open it in its own window (Chromium app mode; the default
 browser when Chromium is not installed).
 
 The page has the live preview on the left and six tabs on the right. The header shows the sensor
-model and the raw stream, and links to the API docs (`/docs`). Under the preview: the measured frame
+model and the raw stream, and links to this documentation (Docs) and the API docs (`/docs`). Under the preview: the measured frame
 rate, frames received and dropped frames, or the reason why there are no frames. A banner above the
 preview shows when the camera is starting, recovering or failed.
 
