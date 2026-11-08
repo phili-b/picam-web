@@ -99,6 +99,13 @@
   }
 
   $effect(() => { load().catch((e) => say(e.message, true)); });
+
+  // Camera model section: opens by itself once when the camera fails (a wrong camera model is the
+  // usual reason), otherwise the user opens and closes it. Bound to `open` directly it would be
+  // reset by every health poll.
+  let modelOpen = $state(false);
+  const failed = $derived(live.health?.state === "failed");
+  $effect(() => { if (failed) modelOpen = true; });
 </script>
 
 <div class="row">
@@ -158,8 +165,7 @@
   <TuningFile />
 </details>
 
-<!-- Open by itself when there is no camera: a wrong camera model is the usual reason -->
-<details open={live.health?.state === "failed"}>
+<details bind:open={modelOpen}>
   <summary>Camera model (dtoverlay)</summary>
   <CameraModel />
 </details>
