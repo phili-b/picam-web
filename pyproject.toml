@@ -3,7 +3,7 @@
 # The viewer and the web service themselves are installed on the Pi with install.sh.
 [project]
 name = "picam-client"
-version = "1.1.1"
+version = "1.2.0"
 description = "Python API for the Picam-web camera service on Raspberry Pi"
 readme = "README.md"
 requires-python = ">=3.9"
