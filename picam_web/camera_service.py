@@ -59,6 +59,9 @@ def metadata_json(md):
     return jsonable({k: v for k, v in md.items() if k not in ("PispStatsOutput", "Bcm2835StatsOutput")})
 
 
+WHITE_BALANCE = {"AwbEnable", "ColourGains"}
+
+
 def load_settings():
     try:
         with open(SETTINGS_FILE) as fh:
@@ -148,6 +151,7 @@ class CameraService:
         self.live.histogram_enabled = True
         self.live.keep_last = True   # raw crops (pixel values when zoomed in) without a capture
         self.metadata = {}
+        self.requested = {}   # the controls last set, for those the metadata does not report
         self.isp_stats = None
         self.isp_stats_count = 0
         self.encoder = None
@@ -164,6 +168,8 @@ class CameraService:
         default = max(range(len(modes)), key=lambda i: (modes[i]["bit_depth"], modes[i]["size"]))
         mode = settings.get("mode", default)
         self.configure(mode if 0 <= mode < len(modes) else default)
+        if "AwbEnable" in self.picam2.camera_controls:   # colour cameras start with auto white balance
+            self.set_controls({"AwbEnable": True})
         if settings.get("controls"):
             try:
                 self.set_controls(settings["controls"])
@@ -384,7 +390,8 @@ class CameraService:
         md = self.metadata
         out = {}
         for name, (lo, hi, default) in self.picam2.camera_controls.items():
-            out[name] = {"min": lo, "max": hi, "default": default, "value": md.get(name)}
+            # Metadata has many controls only on the frame they change: fall back on what was set
+            out[name] = {"min": lo, "max": hi, "default": default, "value": md.get(name, self.requested.get(name))}
         return jsonable(out)
 
     def set_controls(self, controls):
@@ -395,6 +402,7 @@ class CameraService:
                 raise KeyError(f"unknown control {name}")
             clean[name] = tuple(value) if isinstance(value, list) else value
         self.picam2.set_controls(clean)
+        self.requested.update(clean)
         return list(clean)
 
     def remember(self, controls=None):
@@ -404,7 +412,11 @@ class CameraService:
         if self.tuning_file:
             settings["tuning_file"] = self.tuning_file
         if controls is not None:
-            settings["controls"] = {**settings.get("controls", {}), **controls}
+            stored = settings.get("controls", {})
+            # A new white balance choice replaces the old one: libcamera would apply them all, gains last
+            if WHITE_BALANCE & controls.keys():
+                stored = {k: v for k, v in stored.items() if k not in WHITE_BALANCE}
+            settings["controls"] = {**stored, **controls}
         save_settings(settings)
 
     def forget_controls(self):

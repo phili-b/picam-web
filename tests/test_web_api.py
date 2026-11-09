@@ -87,6 +87,20 @@ def test_remember_merges_and_forgets(client):
     assert "controls" not in camera_service.load_settings()
 
 
+def test_controls_report_what_was_set_when_metadata_does_not(client):
+    assert client.get("/api/controls").json()["HdrMode"]["value"] is None
+    client.post("/api/controls", json={"HdrMode": 1})
+    assert client.get("/api/controls").json()["HdrMode"]["value"] == 1
+    client.post("/api/controls", json={"HdrMode": 0})
+
+
+def test_a_new_white_balance_choice_replaces_the_kept_one(client):
+    server.service.remember({"AwbEnable": False, "ColourGains": [2.0, 1.5], "ExposureTime": 7000})
+    server.service.remember({"AwbEnable": True})
+    assert camera_service.load_settings()["controls"] == {"AwbEnable": True, "ExposureTime": 7000}
+    client.delete("/api/controls/remembered")
+
+
 def test_mode_switch(client):
     r = client.post("/api/mode", json={"index": 1})
     assert r.status_code == 200 and r.json()["mode"] == 1

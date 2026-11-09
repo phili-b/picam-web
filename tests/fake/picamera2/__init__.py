@@ -404,7 +404,8 @@ class Picamera2:
               "ScalerCrop": tuple(self._values.get("ScalerCrop") or self._mode["crop_limits"]),
               "FocusFoM": 1000, "SensorTemperature": 35.0}
         if COLOUR:
-            md["ColourGains"] = tuple(self._values.get("ColourGains") or (1.8, 1.6))
+            manual = self._values.get("AwbEnable") is False
+            md["ColourGains"] = tuple(manual and self._values.get("ColourGains") or (1.8, 1.6))
             md["ColourTemperature"] = 5000
         if self._values.get("StatsOutputEnable") and self._frame % 2 == 0:
             md["PispStatsOutput"] = _fake_pisp_stats(img, top)

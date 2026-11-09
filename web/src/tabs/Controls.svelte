@@ -3,6 +3,7 @@
   import { api } from "../lib/api";
   import { live, reloadInfo } from "../lib/live.svelte";
   import AllControls from "../components/AllControls.svelte";
+  import WhiteBalance from "../components/WhiteBalance.svelte";
   import TuningFile from "../components/TuningFile.svelte";
   import CameraModel from "../components/CameraModel.svelte";
 
@@ -155,8 +156,10 @@
 <p class="note">With auto exposure off, slider and field changes apply when released.
   <button class="link" onclick={forget}>Forget kept controls</button></p>
 
+<WhiteBalance {remember} />
+
 <details>
-  <summary>All libcamera controls</summary>
+  <summary>Advanced controls (libcamera)</summary>
   <AllControls />
 </details>
 
