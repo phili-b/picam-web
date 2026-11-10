@@ -280,6 +280,19 @@ def test_unavailable_service():
         server.service = saved
 
 
+def test_unavailable_names_the_camera_model(tmp_path, monkeypatch):
+    import camera_overlay
+    (tmp_path / "overlays").mkdir()
+    (tmp_path / "overlays" / "imx477.dtbo").write_bytes(b"")
+    (tmp_path / "config.txt").write_text("[all]\ndtoverlay=imx477,cam0\n")
+    monkeypatch.setattr(camera_overlay, "BOOT", str(tmp_path))
+    monkeypatch.setattr(camera_overlay, "reboot_pending", lambda: False)
+    message = server.Unavailable("No camera number 0 found").health.message
+    assert "imx477 on CAM0" in message and "Camera model (dtoverlay)" in message
+    monkeypatch.setattr(camera_overlay, "reboot_pending", lambda: True)
+    assert "reboot the Raspberry Pi to load it" in server.Unavailable("x").health.message
+
+
 def test_camera_overlay(client, tmp_path, monkeypatch):
     import camera_overlay
     (tmp_path / "overlays").mkdir()

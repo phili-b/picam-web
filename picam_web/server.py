@@ -189,6 +189,27 @@ def set_auto_reboot(enabled: bool = Body(..., embed=True)):
     return {"auto_reboot": enabled}
 
 
+def camera_model_hint():
+    """The camera model in config.txt and how to change it: a wrong model is the usual reason the
+    camera cannot be opened."""
+    retry = "Otherwise reboot the Raspberry Pi (power-cycles the sensor) or retry."
+    try:
+        status = camera_overlay.status()
+    except RuntimeError:
+        status = {"available": False}
+    if not status["available"]:
+        return "Reboot the Raspberry Pi (power-cycles the sensor) or retry."
+    cur = status["current"]
+    if cur["overlay"]:
+        loaded = f"The camera model set is {cur['overlay']} on {cur['port'].upper()}" + (" (mono)" if cur["mono"] else "")
+    else:
+        loaded = "No camera model is set (the Pi detects it, which works for Raspberry Pi cameras only)"
+    if status["reboot_pending"]:
+        return f"{loaded}, saved after the last boot: reboot the Raspberry Pi to load it."
+    return (f"{loaded}. If another sensor is connected, select it in the Controls tab under "
+            f"Camera model (dtoverlay), save and reboot. {retry}")
+
+
 class Unavailable:
     """Stands in for the camera service when the camera cannot be opened at all: the UI still loads,
     shows the problem and offers a reboot or a new attempt."""
@@ -197,8 +218,7 @@ class Unavailable:
 
     def __init__(self, reason):
         self.health = health.Health()
-        self.health.set("failed", f"The camera cannot be opened: {reason}. Reboot the Raspberry Pi "
-                                  "(power-cycles the sensor) or retry.")
+        self.health.set("failed", f"The camera cannot be opened: {reason}. {camera_model_hint()}")
 
     def reset(self, action):
         if action == "reboot":
