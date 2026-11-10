@@ -14,8 +14,8 @@ import sensor_regs
 
 BOOT = os.environ.get("PICAM_BOOT_DIR", "/boot/firmware")
 HELPER_CMD = ["sudo", "-n", "/usr/local/sbin/picam-camera-overlay"]
-# Overlay names of camera sensors (Sony, OmniVision, ST, onsemi); sensor plugins add their own
-SENSOR_PREFIXES = ("imx", "ov", "vd", "ar0")
+# Overlay names of camera sensors (Sony, OmniVision, ST, onsemi, ams OSRAM Mira); sensor plugins add their own
+SENSOR_PREFIXES = ("imx", "ov", "vd", "ar0", "mira", "poncha")
 LINE = re.compile(r"^\s*dtoverlay=([a-z0-9][a-z0-9_-]*)((?:,[^\s#]*)?)")
 
 

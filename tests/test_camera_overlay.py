@@ -45,6 +45,14 @@ def test_overlays_are_camera_sensors_only(boot):
     assert camera_overlay.overlays() == ["imx219", "imx477", "ov5647"]
 
 
+def test_mira_overlays_are_listed_without_a_plugin(boot):
+    for name in ("mira016", "mira050", "mira220", "poncha110"):
+        (boot / "overlays" / f"{name}.dtbo").write_bytes(b"")
+    (boot / "config.txt").write_text(CONFIG.replace("imx219,cam0", "mira016,mono"))
+    assert {"mira016", "mira050", "mira220", "poncha110"} <= set(camera_overlay.overlays())
+    assert camera_overlay.current()["overlay"] == "mira016" and camera_overlay.current()["mono"]
+
+
 def test_current(boot):
     c = camera_overlay.current()
     assert (c["overlay"], c["port"], c["mono"], c["line"], c["camera_auto_detect"]) == \
