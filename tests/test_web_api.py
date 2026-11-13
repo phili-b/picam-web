@@ -94,6 +94,29 @@ def test_controls_report_what_was_set_when_metadata_does_not(client):
     client.post("/api/controls", json={"HdrMode": 0})
 
 
+def test_controls_report_what_was_set_not_the_lagging_metadata(client, monkeypatch):
+    """The metadata lags a new value by several frames and has no AeEnable: the UI reads the values
+    from here when its Controls tab is opened again, so they must be the ones that were set."""
+    svc = server.service
+    monkeypatch.setattr(svc.picam2, "set_controls", lambda controls: None)   # the camera has not applied them yet
+    client.post("/api/controls", json={"AeEnable": False, "ExposureTime": 31623, "AnalogueGain": 2.5})
+    assert client.get("/api/metadata").json()["ExposureTime"] != 31623
+    c = client.get("/api/controls").json()
+    assert c["AeEnable"]["value"] is False
+    assert c["ExposureTime"]["value"] == 31623 and c["AnalogueGain"]["value"] == 2.5
+    # with auto exposure on, exposure and gain are the camera's again
+    client.post("/api/controls", json={"AeEnable": True})
+    c = client.get("/api/controls").json()
+    assert c["AeEnable"]["value"] is True
+    assert c["ExposureTime"]["value"] == client.get("/api/metadata").json()["ExposureTime"]
+    # a sensor mode switch starts with the camera's defaults: what was set is forgotten
+    client.post("/api/controls", json={"AeEnable": False, "ExposureTime": 31623})
+    monkeypatch.undo()
+    client.post("/api/mode", json={"index": 0})
+    assert client.get("/api/controls").json()["AeEnable"]["value"] is not False
+    wait_for(lambda: client.get("/api/health").json()["state"] == "streaming")
+
+
 def test_a_new_white_balance_choice_replaces_the_kept_one(client):
     server.service.remember({"AwbEnable": False, "ColourGains": [2.0, 1.5], "ExposureTime": 7000})
     server.service.remember({"AwbEnable": True})
@@ -150,6 +173,32 @@ def test_histogram_rois(client):
     assert client.put("/api/rois", json=[{"x": -1, "y": 0, "w": 4, "h": 4}]).status_code == 400
     assert client.put("/api/rois", json=[{"x": 0}]).status_code == 400
     client.put("/api/rois", json=[])
+
+
+def test_histogram_is_computed_only_while_asked_for(client, monkeypatch):
+    svc = server.service
+    monkeypatch.setattr(svc, "ON_DEMAND", 0.3)
+    wait_for(lambda: "channels" in client.get("/api/histogram").json())
+    h = client.get("/api/histogram").json()
+    total = sum(sum(counts) for counts in h["channels"].values())
+    assert abs(total - 640 * 480) < 0.05 * 640 * 480   # a strided sample, scaled to the whole frame
+    time.sleep(0.8)                                      # no request: the lease ran out
+    stored = svc.live.histogram
+    time.sleep(0.8)
+    assert svc.live.histogram is stored                  # nothing was computed meanwhile
+    assert "error" in client.get("/api/histogram").json()   # old data is not served as new
+    wait_for(lambda: "channels" in client.get("/api/histogram").json())
+
+
+def test_raw_crop_is_kept_only_while_asked_for(client, monkeypatch):
+    svc = server.service
+    monkeypatch.setattr(svc, "ON_DEMAND", 0.3)
+    wait_for(lambda: client.get("/api/raw/crop?x=0&y=0&w=1&h=1").status_code == 200)
+    time.sleep(0.8)
+    stored = svc.live.last_image
+    time.sleep(0.8)
+    assert svc.live.last_image is stored                 # no new copy of the raw frame meanwhile
+    assert client.get("/api/raw/crop?x=0&y=0&w=1&h=1").status_code == 503   # and the old one is not served
 
 
 def test_raw_crop_and_view(client):

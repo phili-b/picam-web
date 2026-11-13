@@ -4,7 +4,7 @@
   // /api/raw/crop, in DN) with a grid and their values. All drawing happens in one
   // requestAnimationFrame loop outside Svelte's rendering, so mouse moves never re-render the page.
   import { api, type RawCrop } from "../lib/api";
-  import { live } from "../lib/live.svelte";
+  import { every, live } from "../lib/live.svelte";
 
   const RAW_IMAGE_FROM = 6;     // screen px per raw pixel from which the raw crop is drawn
   const GRID_FROM = 14;         // ... the pixel grid
@@ -296,10 +296,18 @@
       if (!signal.aborted) await new Promise((r) => setTimeout(r, 1000));
     }
   }
+  // A hidden page (background tab, locked phone) does not receive the stream: the service keeps
+  // encoding for the other clients only. It connects again when the page is shown.
   $effect(() => {
-    const ctl = new AbortController();
-    readStream(ctl.signal);
-    return () => ctl.abort();
+    let ctl: AbortController | null = null;
+    const onVisibility = () => {
+      ctl?.abort();
+      ctl = null;
+      if (document.visibilityState === "visible") { ctl = new AbortController(); readStream(ctl.signal); }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    onVisibility();
+    return () => { document.removeEventListener("visibilitychange", onVisibility); ctl?.abort(); };
   });
 
   $effect(() => {
@@ -309,8 +317,8 @@
     let raf = 0;
     const loop = () => { draw(); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
-    const cropTimer = setInterval(fetchCrop, 250);
-    return () => { cancelAnimationFrame(raf); clearInterval(cropTimer); ro.disconnect(); };
+    const stopCrop = every(fetchCrop, 250);
+    return () => { cancelAnimationFrame(raf); stopCrop(); ro.disconnect(); };
   });
 </script>
 

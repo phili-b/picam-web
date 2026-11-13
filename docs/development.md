@@ -49,7 +49,7 @@ npm run build      # -> web/dist/
 | File | |
 |------|-|
 | `src/lib/api.ts` | typed client for the HTTP API |
-| `src/lib/live.svelte.ts` | live state (health, frames, ROIs, camera info), polled twice a second |
+| `src/lib/live.svelte.ts` | live state (health, frames, ROIs, camera info), polled once a second while the page is visible; `every()` runs a timer only then |
 | `src/components/Viewer.svelte` | the preview: zoom, pan, ROIs, raw pixel values |
 | `src/components/HistogramPlot.svelte` | histogram plot (uPlot) |
 | `src/tabs/*.svelte` | one file per tab |

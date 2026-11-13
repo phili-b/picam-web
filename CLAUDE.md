@@ -23,6 +23,16 @@ Pages by `.github/workflows/docs.yml`); keep them updated with UI/API changes.
 - The service's stall/capture timeout is 10 s (`STALL_TIMEOUT`) so long exposures pass
 - The service exits on purpose to reopen the camera; it relies on systemd `Restart=always`
 
+## Performance on small Pis (Pi 3, Pi Zero 2 W)
+
+- The service and the camera share the CPU: the UI polls once a second (`every()` in `web/src/lib/live.svelte.ts`),
+  not at all while the page is hidden, and drops the MJPEG stream then. New timers must use `every()`
+- The histogram and the raw copy for zoomed-in pixel values are made only for `CameraService.ON_DEMAND`
+  (3 s) after a request (`/api/histogram`, `/api/raw/crop`); the histogram is a strided sample
+  (`live.HISTOGRAM_STEP`). Do not turn them on permanently or add per-frame numpy work over the full raw frame
+- The Histograms tab (uPlot) is a dynamic import: keep heavy tabs and libraries out of the main bundle
+- `/api/controls` `value` is what was set (`CameraService.requested`), not the lagging metadata
+
 ## Testing the web UI
 
 - In a hidden browser pane `requestAnimationFrame` never fires and the preview/HUD do not redraw:

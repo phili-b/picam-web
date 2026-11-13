@@ -181,8 +181,13 @@ class Camera:
         return self._post("/api/noise", {"frames": frames, "roi": list(roi) if roi else None})
 
     def histogram(self):
-        """Live raw histogram: {'bits', 'channels': {name: counts}, 'mean', 'min', 'max'}."""
-        h = self._get("/api/histogram")
+        """Live raw histogram: {'bits', 'channels': {name: counts}, 'mean', 'min', 'max'}, or {'error': ...}.
+        The service analyses frames for it only after the first request, so this waits a moment for it."""
+        for _ in range(4):
+            h = self._get("/api/histogram")
+            if "channels" in h:
+                break
+            time.sleep(0.3)
         if "channels" in h:
             h["channels"] = {k: np.asarray(v) for k, v in h["channels"].items()}
         return h

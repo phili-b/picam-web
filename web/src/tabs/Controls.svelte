@@ -1,7 +1,13 @@
+<script module lang="ts">
+  // The analogue/digital split the user chose: only the total gain is sent, so this tab (rebuilt on
+  // every visit) keeps the split here and uses it again while the service still has that total
+  let split = { gain: 0, digital: 0 };
+</script>
+
 <script lang="ts">
   // Sensor mode, auto exposure, exposure time, analogue and digital gain (sliders and number fields).
   import { api } from "../lib/api";
-  import { live, reloadInfo } from "../lib/live.svelte";
+  import { every, live, reloadInfo } from "../lib/live.svelte";
   import AllControls from "../components/AllControls.svelte";
   import WhiteBalance from "../components/WhiteBalance.svelte";
   import TuningFile from "../components/TuningFile.svelte";
@@ -41,15 +47,31 @@
     };
     // Some modes report a nonsense gain maximum (an overflowed 1e28): use a sane one then
     if (!Number.isFinite(limits.gainMax) || limits.gainMax > 1000) limits.gainMax = Math.max(16, limits.gainMin);
+    // Start from what the camera applies now (this tab is rebuilt on every visit: without this the
+    // fields would fall back to their defaults while the camera keeps the manual values)
+    const md = await api.metadata().catch(() => ({} as Record<string, unknown>));
+    if (typeof md.ExposureTime === "number") exposure = md.ExposureTime;
+    if (typeof md.AnalogueGain === "number") gain = Math.round(md.AnalogueGain * 100) / 100;
+    if (typeof md.DigitalGain === "number") digital = Math.round(Math.min(DIGITAL_MAX, Math.max(1, md.DigitalGain)) * 100) / 100;
+    // What the user set (the service remembers it) wins over the metadata, which lags a new value
+    // by several frames and has no AeEnable; with auto exposure on, the metadata is what counts
+    ae = Boolean(c.AeEnable?.value ?? c.AeEnable?.default ?? true);
+    if (!ae && typeof c.ExposureTime?.value === "number") exposure = c.ExposureTime.value;
+    if (!ae && typeof c.AnalogueGain?.value === "number") {
+      // the total gain was sent: analogue first, the rest is digital (as libcamera applies it)
+      const total = c.AnalogueGain.value;
+      gain = Math.min(total, limits.gainMax);
+      digital = Math.min(DIGITAL_MAX, Math.max(1, Math.round(total / gain * 100) / 100));
+      if (Math.abs(split.gain * split.digital - total) < 0.01) ({ gain, digital } = split);
+    }
     exposure = Math.min(limits.expMax, Math.max(limits.expMin, exposure));
     gain = Math.min(limits.gainMax, Math.max(limits.gainMin, gain));
-    ae = Boolean(c.AeEnable?.value ?? c.AeEnable?.default ?? true);
   }
 
   // The gains the camera applies; with auto exposure on, the fields follow the camera
   $effect(() => {
     const auto = ae;
-    const id = setInterval(async () => {
+    return every(async () => {
       try {
         const md = await api.metadata();
         const a = typeof md.AnalogueGain === "number" ? md.AnalogueGain : null;
@@ -60,8 +82,7 @@
         if (a !== null) gain = Math.round(a * 100) / 100;
         if (d !== null) digital = Math.round(Math.min(DIGITAL_MAX, Math.max(1, d)) * 100) / 100;
       } catch { /* shown by the status line */ }
-    }, 500);
-    return () => clearInterval(id);
+    }, 1000);
   });
 
   async function apply() {
@@ -73,7 +94,7 @@
     const v: Record<string, unknown> = { AeEnable: ae };
     // libcamera has no digital gain control: a gain above the analogue maximum is applied
     // as digital gain in the ISP, so the total gain is sent
-    if (!ae) { v.ExposureTime = Math.round(exposure); v.AnalogueGain = Math.round(gain * digital * 1000) / 1000; }
+    if (!ae) { v.ExposureTime = Math.round(exposure); v.AnalogueGain = Math.round(gain * digital * 1000) / 1000; split = { gain, digital }; }
     try {
       const r = await api.setControls(v, remember);
       say("Set " + r.set.join(", ") + (r.remembered ? " (kept after a restart)" : ""));

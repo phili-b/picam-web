@@ -148,10 +148,11 @@ class CameraService:
         self.frame_stats = analysis.FrameStats()
         self.live = live.LiveView(self.picam2, rate=4, set_overlay=lambda overlay: None)
         self.live.show_pixels = False
-        self.live.histogram_enabled = True
-        self.live.keep_last = True   # raw crops (pixel values when zoomed in) without a capture
+        self.live.show_rois = False    # the browser draws the ROIs: no overlay image per analysed frame
+        # The histogram and the raw copy for crops are only made while a client asks for them
+        # (see ON_DEMAND): analysing a full raw frame in the camera callback slows a small Pi down
         self.metadata = {}
-        self.requested = {}   # the controls last set, for those the metadata does not report
+        self.requested = {}   # controls set through set_controls: the metadata lags them by several frames
         self.isp_stats = None
         self.isp_stats_count = 0
         self.encoder = None
@@ -215,6 +216,7 @@ class CameraService:
             self.picam2.start_encoder(self.encoder, FileOutput(self.stream), name="main")
             self.mode_index = mode_index
             self.frame_stats.reset()
+            self.requested = {}   # a new configuration starts with the default controls
             self.started = time.monotonic()
             self.health.set("starting", f"Starting sensor mode {mode['unpacked']} {w}x{h}")
 
@@ -345,6 +347,11 @@ class CameraService:
             md = request.get_metadata()
             self.frame_stats.update(md)
             self.metadata = md
+            # The sensor rate follows the exposure (a long exposure gives few frames a second): skip
+            # frames by the rate it runs at now, not by the mode's maximum, or the preview stalls
+            fps = self.frame_stats.expected_fps
+            if fps and self.encoder is not None and hasattr(self.encoder, "frame_skip_count"):
+                self.encoder.frame_skip_count = max(1, round(fps / STREAM_FPS))
             self.live.process(request)
             stats = isp_stats.decode(md) if self.isp_stats_on else None
             if stats:
@@ -390,8 +397,9 @@ class CameraService:
         md = self.metadata
         out = {}
         for name, (lo, hi, default) in self.picam2.camera_controls.items():
-            # Metadata has many controls only on the frame they change: fall back on what was set
-            out[name] = {"min": lo, "max": hi, "default": default, "value": md.get(name, self.requested.get(name))}
+            # What was set, else what the camera reports: the metadata lags a new value by several
+            # frames (seconds with long exposures) and has no AeEnable
+            out[name] = {"min": lo, "max": hi, "default": default, "value": self.requested.get(name, md.get(name))}
         return jsonable(out)
 
     def set_controls(self, controls):
@@ -403,6 +411,9 @@ class CameraService:
             clean[name] = tuple(value) if isinstance(value, list) else value
         self.picam2.set_controls(clean)
         self.requested.update(clean)
+        if self.requested.get("AeEnable"):   # auto exposure chooses them again: report the camera's values
+            self.requested.pop("ExposureTime", None)
+            self.requested.pop("AnalogueGain", None)
         return list(clean)
 
     def remember(self, controls=None):
@@ -527,7 +538,13 @@ class CameraService:
                 "roi": list(roi) if roi else None}
 
     # Live analysis -------------------------------------------------------------------------
+    ON_DEMAND = 3.0   # s the live analysis keeps running after a client asked for it
+
     def histogram(self):
+        now = time.monotonic()
+        if now >= self.live.histogram_until:   # nobody asked for a while: what is stored is old
+            self.live.histogram = None
+        self.live.histogram_until = now + self.ON_DEMAND
         h = self.live.histogram
         if not h:
             return {"error": self.live.error or "no histogram yet"}
@@ -558,6 +575,10 @@ class CameraService:
     def raw_crop(self, x, y, w, h):
         """Pixel values (DN) of a raw area of the latest analysed frame (updated 4 times a second).
         No capture: cheap enough for every pan or zoom of the viewer."""
+        now = time.monotonic()
+        if now >= self.live.keep_until:   # nobody asked for a while: the stored frame is old
+            self.live.last_image = None
+        self.live.keep_until = now + self.ON_DEMAND
         last = self.live.last_image
         if last is None:
             raise RuntimeError(self.live.error or "no analysed frame yet")

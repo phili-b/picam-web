@@ -44,7 +44,8 @@ def raw_to_image(array, stream_fmt, size, sensor_bits=None):
     img = np.asarray(array).view(np.uint16)[:h, :w]
     if stream_bits == 16 and bits < 16:
         low = (1 << (16 - bits)) - 1
-        if not np.any(img & low):
+        # (a strided sample of the frame is enough to see the alignment)
+        if not np.any(img[::max(1, h // 64), ::max(1, w // 64)] & low):
             img = img >> (16 - bits)
     return img, bits
 

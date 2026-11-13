@@ -32,7 +32,7 @@ returns 503 while the service recovers the camera in the background.
 | Method | Path | Parameters | Response |
 |--------|------|------------|----------|
 | GET | `/api/info` | | `properties`, `sensor_modes` (format, unpacked, size, bit_depth, fps, crop_limits, exposure_limits), `mode`, `raw` (format, size, stride), `main` (format, size), `is_mono`, `tuning_file`, `sensor`, `version`, `instance` |
-| GET | `/api/controls` | | `{name: {min, max, default, value}}` for every libcamera control; `value` from the latest metadata |
+| GET | `/api/controls` | | `{name: {min, max, default, value}}` for every libcamera control; `value` is what was last set through this API (or the stored controls), else the latest metadata (which lags new values by several frames and has no `AeEnable`); with `AeEnable` true exposure and gain are the camera's; a sensor mode switch forgets what was set |
 | POST | `/api/controls` | body: `{name: value, ...}`; query `remember` (bool, default false) | `{"set": [names], "remembered": bool}`; lists become tuples; with `remember=true` the controls are stored for the next start, merged with the ones stored before |
 | DELETE | `/api/controls/remembered` | | forgets the stored controls: the next start uses the defaults |
 | GET | `/api/metadata` | | metadata of the latest frame (ISP statistics blobs left out) |
@@ -70,8 +70,8 @@ during a noise capture stops it with 400 ("the sensor mode changed during the ca
 
 | Method | Path | Parameters | Response |
 |--------|------|------------|----------|
-| GET | `/api/raw/crop` | query `x`, `y`, `w`, `h` (w and h 1-128) | pixel values in DN of that raw area of the last analysed frame (4 per second, no capture): `x`, `y`, `w`, `h` (clipped to the frame), `bits`, `width`, `height`, `age_s`, `values` (row by row) |
-| GET | `/api/histogram` | | `bits`, `channels` (`{name: counts}`, R/G/B or Y, up to 256 bins), `mean`, `min`, `max`; or `{"error": ...}` |
+| GET | `/api/raw/crop` | query `x`, `y`, `w`, `h` (w and h 1-128) | pixel values in DN of that raw area of the last analysed frame (4 per second, no capture; the frame is only kept for about 3 s after a request, so the first request after a pause answers 503): `x`, `y`, `w`, `h` (clipped to the frame), `bits`, `width`, `height`, `age_s`, `values` (row by row) |
+| GET | `/api/histogram` | | `bits`, `channels` (`{name: counts}`, R/G/B or Y, up to 256 bins; counted on every 4th pixel in x and y and scaled to the whole frame), `mean`, `min`, `max`; or `{"error": ...}`. The service analyses frames for it only for about 3 s after each request: the first answer after a pause is an error, poll again (`picam_client` waits for it) |
 | GET | `/api/rois` | | `[{name, x, y, w, h, mean, view}]`; `view` = `[u0, v0, u1, v1]` position on the preview (0..1) |
 | PUT | `/api/rois` | body: `[{name, x, y, w, h}, ...]` in raw pixels | the new ROIs, as GET. x, y >= 0 and inside the raw frame, w, h >= 1; w and h are clipped to the frame |
 | POST | `/api/isp_stats/enable` | body: `{"enabled": true}` | `{"enabled": ...}`; sets `StatsOutputEnable` |

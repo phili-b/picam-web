@@ -38,7 +38,7 @@ values are those of the last analysed frame (4 per second).
 | Item | |
 |------|-|
 | Sensor mode | format, size, bit depth and maximum fps; switching restarts the camera |
-| Auto exposure | on: exposure and gain follow the camera; off: set them by hand |
+| Auto exposure | on: exposure and gain follow the camera; off: set them by hand. The tab shows what you set again when you come back to it (the service remembers the values you set) |
 | Exposure [µs], Analogue gain | slider (exposure on a log scale) or number; applied when released. The limits are those of the current sensor mode (its exposure range, narrowed to what libcamera reports) and follow a mode switch; a typed value outside them is brought back into range. The limits in force are printed under the fields. A mode with a fixed gain (minimum equals maximum, e.g. the 12-bit modes of some sensors) disables the gain slider |
 | Digital gain | 1x to 4x on top of the analogue gain; the total gain is sent and libcamera uses analogue gain first, up to the mode maximum, then digital gain in the ISP. It only scales the processed preview and JPEG, not the raw frames, DNG/TIFF or noise figures. The gains the camera actually applies are shown under the sliders. The 4x maximum is libcamera's `max_digital_gain` (tuning file default) |
 | keep after restart | also store the controls, so the service starts with them next time |
@@ -66,7 +66,9 @@ See [Raw data](raw-data.md) for the formats.
 
 The live histogram of the raw frame (R, G and B for Bayer sensors, one line for mono sensors), with
 mean, min and max in DN. Drag over the plot to zoom into a range, double-click to zoom out;
-logarithmic or linear counts.
+logarithmic or linear counts. The service only analyses the frames for the histogram while this
+tab is open (about 3 s after the last request), and the counts come from every 4th pixel in x and
+y, scaled to the whole frame.
 
 **ISP statistics** (Raspberry Pi 5): switch them on to see the ISP's own AGC histogram, its 32x32
 zone means and its 8x8 focus figure of merit.
@@ -109,6 +111,22 @@ Results go to the log below. Writes bypass the driver; see [Registers](registers
 The service also recovers by itself when frames stop for 10 s (so exposures up to the sensor
 maximum, about 6.6 s, are not cut off): it restarts the stream, then reopens the
 camera, then reports *failed* with **Reset camera** and **Reboot Pi** buttons in the banner.
+
+## Performance on small Pis
+
+The UI is meant to stay light for a Raspberry Pi 3 or a Pi Zero 2 W, where the service shares the
+CPU with the camera:
+
+- one poll a second for health, frame counters and ROI means; the open tab adds at most one more
+  request a second (two for the histogram)
+- a page that is not visible (background tab, locked phone) makes no requests and drops the MJPEG
+  stream; it connects again when it is shown
+- the Histograms tab, with its plot library, is loaded when it is first opened; the service
+  computes the histogram, and keeps a copy of the raw frame for the zoomed-in pixel values, only
+  for about 3 s after a client asked for them
+- the ROIs are drawn by the browser, the service makes no overlay image
+- the MJPEG preview is 960 px wide at up to 30 fps (`STREAM_WIDTH`, `STREAM_FPS` in
+  `picam_web/camera_service.py`): lower them if a small Pi cannot keep up
 
 ## Classic UI
 

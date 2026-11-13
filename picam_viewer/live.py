@@ -16,6 +16,7 @@ import analysis
 
 ROI_COLOURS = [(154, 205, 86), (0, 173, 253), (255, 170, 0), (226, 84, 255), (255, 90, 90), (255, 255, 255)]
 PIXEL_VALUES_MAX = 50   # show pixel values when at most this many raw pixels span the view
+HISTOGRAM_STEP = 4      # the histogram counts every 4th pixel in x and y
 PIXEL_CELL_MIN = 36     # draw the overlay at a resolution that gives each pixel at least this many px
 
 
@@ -49,14 +50,15 @@ def raw_info(picam2):
     return raw["format"], size, bits, mode
 
 
-def channels(img, fmt):
-    """{name: pixels} for the histogram: R/G/B for Bayer formats, one 'Y' channel otherwise."""
+def channels(img, fmt, step=1):
+    """{name: pixels} for the histogram: R/G/B for Bayer formats, one 'Y' channel otherwise.
+    step > 1 takes every step-th pixel of each colour plane (a strided view: the rest is not touched)."""
     order = fmt[1:5].upper() if fmt.upper().startswith("S") else ""
     if order not in ("RGGB", "GRBG", "GBRG", "BGGR"):
-        return {"Y": img}
+        return {"Y": img[::step, ::step]}
     planes = {}
     for i, c in enumerate(order):
-        plane = img[i // 2::2, i % 2::2]
+        plane = img[i // 2::2 * step, i % 2::2 * step]
         planes.setdefault(c, []).append(plane.ravel())
     return {c: np.concatenate(p) for c, p in planes.items()}
 
@@ -77,7 +79,10 @@ class LiveView:
         self.histogram = None      # {channel: counts}, bits
         self.stats = None          # mean/min/max of the last frame
         self.keep_last = False     # keep a copy of the last analysed frame (web service: raw crops)
-        self.last_image = None     # (image in DN, bits, time.monotonic()) when keep_last
+        # Web service: work only while a client asks for it (time.monotonic() until which it is wanted)
+        self.histogram_until = 0.0
+        self.keep_until = 0.0
+        self.last_image = None     # (image in DN, bits, time.monotonic()) when kept
         self.error = None
         self._last = 0.0
         self._overlay_on = False
@@ -88,7 +93,9 @@ class LiveView:
         if now - self._last < self.period:
             return
         self._last = now
-        if not (self.rois or self.show_pixels or self.histogram_enabled or self.keep_last):
+        histogram = self.histogram_enabled or now < self.histogram_until
+        keep = self.keep_last or now < self.keep_until
+        if not (self.rois or self.show_pixels or histogram or keep):
             self._clear_overlay()
             return
         try:
@@ -99,17 +106,21 @@ class LiveView:
             self._clear_overlay()
             return
         self.error = None
-        if self.keep_last:  # a copy: the request's buffer goes back to the camera
+        if keep:  # a copy: the request's buffer goes back to the camera
             self.last_image = (np.array(img, dtype=np.uint16), bits, now)
         for roi in self.rois:
             sub = analysis.crop(img, roi.rect)
             roi.mean = float(sub.mean()) if sub.size else float("nan")
-        self.stats = {"mean": float(img.mean()), "min": int(img.min()), "max": int(img.max()), "bits": bits}
-        if self.histogram_enabled:
-            top = 1 << bits
-            bins = min(256, top)
-            self.histogram = ({c: np.histogram(p, bins=bins, range=(0, top))[0]
-                               for c, p in channels(img, fmt).items()}, bits)
+        if histogram:
+            # Counts of a strided sample (every HISTOGRAM_STEP-th pixel in x and y), scaled back to
+            # the whole frame: np.histogram over 2 Mpixel takes ~50 ms, this ~1 ms
+            bins = min(256, 1 << bits)
+            shift = max(0, bits - 8)
+            k = HISTOGRAM_STEP ** 2
+            self.stats = {"mean": float(img[::HISTOGRAM_STEP, ::HISTOGRAM_STEP].mean()), "min": int(img.min()),
+                          "max": int(img.max()), "bits": bits}
+            self.histogram = ({c: np.bincount((p >> shift).ravel(), minlength=bins)[:bins] * k
+                               for c, p in channels(img, fmt, HISTOGRAM_STEP).items()}, bits)
         crop = request.get_metadata().get("ScalerCrop")
         try:
             self._draw(img, mode, crop)

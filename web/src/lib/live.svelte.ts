@@ -39,8 +39,18 @@ export async function reloadInfo() {
   live.info = await api.info();
 }
 
-export function startPolling(periodMs = 500) {
-  poll();
-  const id = setInterval(poll, periodMs);
-  return () => clearInterval(id);
+/** Run fn now and every periodMs, but only while the page is visible (a hidden page, e.g. a
+ * background tab, makes no requests). Returns the stop function. */
+export function every(fn: () => void, periodMs: number) {
+  let id = 0;
+  const start = () => { if (!id) { fn(); id = setInterval(fn, periodMs); } };
+  const stop = () => { clearInterval(id); id = 0; };
+  const onVisibility = () => (document.visibilityState === "visible" ? start() : stop());
+  document.addEventListener("visibilitychange", onVisibility);
+  onVisibility();
+  return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
+}
+
+export function startPolling(periodMs = 1000) {
+  return every(poll, periodMs);
 }

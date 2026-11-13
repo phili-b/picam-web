@@ -3,13 +3,13 @@
   import HealthBanner from "./components/HealthBanner.svelte";
   import Controls from "./tabs/Controls.svelte";
   import Capture from "./tabs/Capture.svelte";
-  import Histograms from "./tabs/Histograms.svelte";
   import RoisNoise from "./tabs/RoisNoise.svelte";
   import Registers from "./tabs/Registers.svelte";
   import Status from "./tabs/Status.svelte";
   import { live, startPolling } from "./lib/live.svelte";
 
-  const TABS = { "Controls": Controls, "Capture": Capture, "Histograms": Histograms, "ROIs & Noise": RoisNoise,
+  // The Histograms tab (with the plot library) is loaded when it is first opened
+  const TABS = { "Controls": Controls, "Capture": Capture, "Histograms": null, "ROIs & Noise": RoisNoise,
     "Registers": Registers, "Status": Status };
   type TabName = keyof typeof TABS;
   let tab = $state<TabName>("Controls");
@@ -47,7 +47,13 @@
         <button class:active={tab === t} onclick={() => (tab = t as TabName)}>{t}</button>
       {/each}
     </nav>
-    <div class="tab"><Tab /></div>
+    <div class="tab">
+      {#if Tab}
+        <Tab />
+      {:else}
+        {#await import("./tabs/Histograms.svelte") then m}<m.default />{/await}
+      {/if}
+    </div>
   </aside>
 </main>
 
