@@ -253,6 +253,15 @@ class Camera:
                                       controls_context=controls_context).items() if v is not None}
         return self._request("PUT", "/api/sensor/contexts", body=body)
 
+    # FPN correction ----------------------------------------------------------------------------
+    def fpn(self, enabled=None):
+        """libcamera's FPN (dark frame) correction: {'available', 'enabled'}. enabled True/False
+        switches it (the camera is configured again, as for set_mode); 'available' is False unless the
+        service has PICAM_FPN_DIR and PICAM_FPN_LINK set."""
+        if enabled is None:
+            return self._get("/api/fpn")
+        return self._request("PUT", "/api/fpn", body={"enabled": bool(enabled)}, timeout=60)
+
     # Tuning ------------------------------------------------------------------------------------
     def tuning(self):
         return self._get("/api/tuning")

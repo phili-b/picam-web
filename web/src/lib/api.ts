@@ -111,6 +111,12 @@ export interface CameraOverlay {
   reboot_pending: boolean;
 }
 
+/** libcamera's FPN (dark frame) correction; available only when the service has it set up. */
+export interface Fpn {
+  available: boolean;
+  enabled: boolean;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
     method,
@@ -205,6 +211,8 @@ export const api = {
   setMode: (index: number) => post<{ mode: number; rois: Roi[] }>("/api/mode", { index }),
   tuning: () => get<{ current: string | null; files: string[] }>("/api/tuning"),
   setTuning: (path: string | null) => post<{ instance: string }>("/api/tuning", { path }),
+  fpn: () => get<Fpn>("/api/fpn"),
+  setFpn: (enabled: boolean) => put<Fpn>("/api/fpn", { enabled }),
   cameraOverlay: () => get<CameraOverlay>("/api/camera_overlay"),
   setCameraOverlay: (overlay: string, port: "cam0" | "cam1", mono: boolean) =>
     put<CameraOverlay>("/api/camera_overlay", { overlay, port, mono }),

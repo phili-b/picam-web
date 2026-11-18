@@ -136,6 +136,15 @@ cam.set_controls(ExposureTime=2000)                     # context B only
 cam.set_contexts(controls_context="A", context="B")     # use B; later changes go to A
 ```
 
+## FPN correction
+
+```python
+cam.fpn()           # {'available': True, 'enabled': False}; available needs the service set up for it
+cam.fpn(True)       # switch libcamera's FPN (dark frame) correction on; the camera is configured again
+```
+
+Set-up of the service: [HTTP API, FPN correction](http-api.md#fpn-correction).
+
 ## Tuning
 
 ```python

@@ -99,6 +99,37 @@ whose plugin profile has a banked register map (context 0 up to the number of co
 | GET | `/api/tuning` | | `{"current": path or null, "files": [installed tuning files for this platform]}` |
 | POST | `/api/tuning` | body: `{"path": "/usr/share/libcamera/ipa/rpi/pisp/<file>.json"}`, or `{"path": null}` for the sensor's default file | 202 `{"restarting": true, "tuning_file": path, "instance": ...}`; the service checks that the file loads for this sensor (400 if not) and restarts with it a moment later |
 
+### FPN correction
+
+Fixed pattern noise (dark frame) correction of the ams-OSRAM libcamera fork, switched at runtime. It
+needs some setup; without it `available` is false and the web UI hides the switch.
+
+| Method | Path | Parameters | Response |
+|--------|------|------------|----------|
+| GET | `/api/fpn` | | `{"available", "enabled"}` |
+| PUT | `/api/fpn` | body: `{"enabled": true}` | as GET, after the camera was configured again (like `POST /api/mode`, the controls set are kept); 400 if not available, 503 if the camera fails |
+
+libcamera reads the dark frames from `<dir>/<sensor model>/gain_<code>.pgm`, where `<dir>` is the
+`fpn_dark_frame_dir` of its pipeline config file (`LIBCAMERA_RPI_CONFIG_FILE`). That file is read once per
+process, but the directory is looked at again on every camera configure. So `<dir>` is a symlink that the
+service creates (on) or removes (off); no libcamera restart is needed. Setup (example):
+
+```
+# the dark frames: /home/pi/fpn/<sensor model>/gain_<code>.pgm
+# /home/pi/fpn.yaml: libcamera's pipeline config, pointing at the link (not at the dark frames)
+{"version": 1.0, "target": "pisp", "pipeline_handler": {"fpn_dark_frame_dir": "/home/pi/fpn-active"}}
+# systemd drop-in (sudo systemctl edit picam-web)
+[Service]
+Environment=LIBCAMERA_RPI_CONFIG_FILE=/home/pi/fpn.yaml
+Environment=PICAM_FPN_DIR=/home/pi/fpn
+Environment=PICAM_FPN_LINK=/home/pi/fpn-active
+```
+
+The state is the link itself, so it survives a restart: create it once (`ln -s /home/pi/fpn
+/home/pi/fpn-active`) for FPN on at boot, or leave it out for off. A real directory at the link path is
+never touched. With the correction off, libcamera logs a warning at every configure that it found no dark
+frame; with it on it logs `FPN dark frames for <sensor>: gain codes ...` and turns PiSP raw compression off.
+
 ### Camera model
 
 | Method | Path | Parameters | Response |

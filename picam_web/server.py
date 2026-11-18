@@ -24,6 +24,7 @@ from starlette.background import BackgroundTask
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera_service  # noqa: E402
 import camera_overlay  # noqa: E402
+import fpn  # noqa: E402
 import health  # noqa: E402
 
 VERSION = "1.2.3"
@@ -147,6 +148,24 @@ def set_mode(index: int = Body(..., embed=True)):
         _unavailable(f"switching to mode {index} failed: {e}")
     service.remember()
     return {"mode": index, "rois": service.rois()}
+
+
+@app.get("/api/fpn", summary="FPN (dark frame) correction: {available, enabled}; available needs PICAM_FPN_DIR "
+                             "and PICAM_FPN_LINK")
+def fpn_get():
+    return fpn.status()
+
+
+@app.put("/api/fpn", summary="Turn the FPN correction on or off (the camera is configured again, as for a mode switch)")
+def fpn_set(enabled: bool = Body(..., embed=True)):
+    if not fpn.status()["available"]:
+        _bad("FPN correction is not set up (see PICAM_FPN_DIR and PICAM_FPN_LINK)")
+    try:
+        service.set_fpn(enabled)
+    except Exception as e:  # noqa: BLE001 - libcamera errors: report them, the monitor recovers the camera
+        log.exception("FPN switch failed")
+        _unavailable(f"switching the FPN correction failed: {e}")
+    return fpn.status()
 
 
 @app.get("/api/frames", summary="Frame counter, measured/expected fps, dropped frames, the raw area the "

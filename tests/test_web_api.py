@@ -270,6 +270,33 @@ def test_tuning(client, monkeypatch, tmp_path):
     wait_for(lambda: len(restarts) == 2)
 
 
+def test_fpn(client, monkeypatch, tmp_path):
+    svc = server.service
+    assert client.get("/api/fpn").json() == {"available": False, "enabled": False}  # nothing set up
+    assert client.put("/api/fpn", json={"enabled": True}).status_code == 400
+    calibration, link = tmp_path / "fpn", tmp_path / "fpn-active"
+    calibration.mkdir()
+    try:
+        (tmp_path / "probe").symlink_to(calibration)
+    except OSError:
+        pytest.skip("no symlinks here (Windows without developer mode)")
+    monkeypatch.setenv("PICAM_FPN_DIR", str(calibration))
+    monkeypatch.setenv("PICAM_FPN_LINK", str(link))
+    assert client.get("/api/fpn").json() == {"available": True, "enabled": False}
+    client.post("/api/controls", json={"ExposureTime": 7000, "AeEnable": False})
+    mode = svc.mode_index
+    assert client.put("/api/fpn", json={"enabled": True}).json() == {"available": True, "enabled": True}
+    assert link.is_symlink() and link.resolve() == calibration.resolve()
+    wait_for(lambda: svc.health.state == "streaming")
+    assert svc.mode_index == mode and svc.requested["ExposureTime"] == 7000  # reconfigured, controls kept
+    assert client.put("/api/fpn", json={"enabled": False}).json() == {"available": True, "enabled": False}
+    assert not link.exists() and calibration.is_dir()
+    wait_for(lambda: svc.health.state == "streaming")
+    link.mkdir()  # a real directory at the link path is never replaced
+    assert client.get("/api/fpn").json()["available"] is False
+    client.post("/api/controls", json={"AeEnable": True})
+
+
 def test_health_auto_reboot(client):
     h = client.get("/api/health").json()
     assert h["state"] == "streaming" and h["instance"]

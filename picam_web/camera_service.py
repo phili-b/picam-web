@@ -20,6 +20,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "picam_viewer"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analysis  # noqa: E402
+import fpn  # noqa: E402
 import health  # noqa: E402
 import isp_stats  # noqa: E402
 import live  # noqa: E402
@@ -219,6 +220,16 @@ class CameraService:
             self.requested = {}   # a new configuration starts with the default controls
             self.started = time.monotonic()
             self.health.set("starting", f"Starting sensor mode {mode['unpacked']} {w}x{h}")
+
+    def set_fpn(self, enabled):
+        """Turn libcamera's FPN correction on or off: libcamera looks for the dark frames each time
+        the camera is configured, so switch them (see fpn.py) and configure again, keeping the controls."""
+        with self.lock:
+            fpn.set_enabled(enabled)
+            controls = dict(self.requested)
+            self.configure(self.mode_index)
+            if controls:
+                self.set_controls(controls)
 
     # Health and recovery ------------------------------------------------------------------
     @property

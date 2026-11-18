@@ -12,6 +12,7 @@
   import WhiteBalance from "../components/WhiteBalance.svelte";
   import TuningFile from "../components/TuningFile.svelte";
   import CameraModel from "../components/CameraModel.svelte";
+  import FpnCorrection from "../components/FpnCorrection.svelte";
 
   let ae = $state(true);
   let exposure = $state(10000);   // us
@@ -138,6 +139,8 @@
     {/each}
   </select>
 </div>
+
+<FpnCorrection />
 
 <div class="row">
   <label for="ae">Auto exposure</label>
