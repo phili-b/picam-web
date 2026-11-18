@@ -61,11 +61,14 @@ The systemd unit `picam-web` runs:
 ```
 
 as the viewer user, with `CAP_NET_BIND_SERVICE` so it can use port 80 without root, and
-`Restart=always` (2 s). The service exits with code 3 to restart itself with another tuning file.
+`Restart=on-failure` (2 s). The service exits with code 3 to restart itself with another tuning file.
+A stop leaves it stopped, so other camera programs can run (the service holds the camera):
 
 ```bash
 sudo systemctl status picam-web
 sudo systemctl restart picam-web
+sudo systemctl stop picam-web     # free the camera, e.g. for rpicam-hello
+sudo systemctl start picam-web
 journalctl -u picam-web -f
 ```
 

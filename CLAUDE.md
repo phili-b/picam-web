@@ -21,7 +21,7 @@ Pages by `.github/workflows/docs.yml`); keep them updated with UI/API changes.
 - libcamera has no digital gain control: a gain above the analogue maximum becomes ISP digital gain
   (processed image only, not raw), capped by the tuning file's `max_digital_gain` (default 4)
 - The service's stall/capture timeout is 10 s (`STALL_TIMEOUT`) so long exposures pass
-- The service exits on purpose to reopen the camera; it relies on systemd `Restart=always`
+- The service exits on purpose to reopen the camera; it relies on systemd `Restart=on-failure` (a stop or clean exit must leave it stopped, to free the camera for other programs)
 
 ## Performance on small Pis (Pi 3, Pi Zero 2 W)
 

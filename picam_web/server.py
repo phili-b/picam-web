@@ -497,7 +497,8 @@ def main():
             threading.Thread(target=ping, daemon=True).start()
     import uvicorn
     try:
-        uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+        uvicorn.run(app, host=args.host, port=args.port, log_level="warning",
+                    timeout_graceful_shutdown=2)  # open MJPEG streams never end by themselves
     finally:
         service.close()
 

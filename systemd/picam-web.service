@@ -13,9 +13,12 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 # (no ping for 30 s) makes systemd restart it
 WatchdogSec=30
 TimeoutStartSec=90
-# Exit code 3 = restart requested (tuning file switch, camera reopen)
-Restart=always
+# Exit code 3 = restart requested (tuning file switch, camera reopen). A clean exit or
+# `systemctl stop` leaves the service stopped, e.g. to run rpicam-hello
+Restart=on-failure
 RestartSec=2
+# An open preview stream must not hold up a stop
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target
