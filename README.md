@@ -4,6 +4,7 @@ A camera viewer and small tools for evaluating camera sensors on a Raspberry Pi,
 [picamera2](https://github.com/raspberrypi/picamera2), libcamera and the Raspberry Pi ISP.
 Works with any sensor libcamera supports; sensor-specific extras (named registers, banked register
 maps, driver register controls) come from optional [sensor plugins](docs/registers.md#sensor-plugins).
+<img width="1611" height="1012" alt="image" src="https://github.com/user-attachments/assets/3824b24e-c3e5-47f9-b69c-3c2ac5ccb34c" />
 
 ## Web viewer and Python API
 A camera service (`picam_web/`, systemd unit `picam-web`, port 80) owns the camera and serves:
