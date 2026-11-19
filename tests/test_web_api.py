@@ -69,6 +69,7 @@ def test_page_and_static(client):
 
 def test_info_controls_metadata(client):
     info = client.get("/api/info").json()
+    assert info["analogue_gain_steps"] is None   # the fake sensor takes any gain
     assert info["properties"]["Model"] == "fakecam" and info["raw"]["size"] == [640, 480]
     assert info["instance"] and len(info["sensor_modes"]) == 2
     controls = client.get("/api/controls").json()

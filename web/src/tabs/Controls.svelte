@@ -25,6 +25,9 @@
 
   // 12-bit modes of some sensors have a fixed gain: min equals max, nothing to slide
   const gainFixed = $derived(limits.gainMax - limits.gainMin < 0.01);
+  // Sensors with a few discrete analogue gains (e.g. 1, 2, 3): a list instead of the slider
+  const gainSteps = $derived(live.info?.analogue_gain_steps ?? null);
+  const nearestStep = (g: number) => gainSteps!.reduce((a, b) => (Math.abs(b - g) < Math.abs(a - g) ? b : a));
   const fmtLimit = (x: number) => (Math.abs(x) >= 100 ? Math.round(x).toLocaleString("en") : String(Math.round(x * 100) / 100));
 
   function say(text: string, isError = false) { msg = text; error = isError; }
@@ -42,9 +45,18 @@
     };
     // Some modes report a nonsense gain maximum (an overflowed 1e28): use a sane one then
     if (!Number.isFinite(limits.gainMax) || limits.gainMax > 1000) limits.gainMax = Math.max(16, limits.gainMin);
+    ae = Boolean(c.AeEnable?.value ?? c.AeEnable?.default ?? true);
+    // With auto exposure off, show what the camera applies now (the tab starts from scratch after a
+    // tab switch; without this the fields fell back to 10000 us and gain 1)
+    if (!ae) {
+      const md = await api.metadata();
+      if (typeof md.ExposureTime === "number") exposure = md.ExposureTime;
+      if (typeof md.AnalogueGain === "number") gain = Math.round(md.AnalogueGain * 100) / 100;
+      if (typeof md.DigitalGain === "number") digital = Math.round(Math.min(DIGITAL_MAX, Math.max(1, md.DigitalGain)) * 100) / 100;
+    }
     exposure = Math.min(limits.expMax, Math.max(limits.expMin, exposure));
     gain = Math.min(limits.gainMax, Math.max(limits.gainMin, gain));
-    ae = Boolean(c.AeEnable?.value ?? c.AeEnable?.default ?? true);
+    if (gainSteps) gain = nearestStep(gain);
   }
 
   // The gains the camera applies; with auto exposure on, the fields follow the camera
@@ -58,7 +70,7 @@
         if (a !== null) applied = `Applied: analogue ${a.toFixed(2)}x` + (d !== null ? ` × digital ${d.toFixed(2)}x` : "");
         if (!auto) return;
         if (typeof md.ExposureTime === "number") exposure = md.ExposureTime;
-        if (a !== null) gain = Math.round(a * 100) / 100;
+        if (a !== null) gain = gainSteps ? nearestStep(a) : Math.round(a * 100) / 100;
         if (d !== null) digital = Math.round(Math.min(DIGITAL_MAX, Math.max(1, d)) * 100) / 100;
       } catch { /* shown by the status line */ }
     }, 500);
@@ -70,6 +82,7 @@
     const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(x) ? x : lo));
     exposure = clamp(exposure, limits.expMin, limits.expMax);
     gain = clamp(gain, limits.gainMin, limits.gainMax);
+    if (gainSteps) gain = nearestStep(gain);
     digital = clamp(digital, 1, DIGITAL_MAX);
     const v: Record<string, unknown> = { AeEnable: ae };
     // libcamera has no digital gain control: a gain above the analogue maximum is applied
@@ -119,7 +132,6 @@
   </select>
 </div>
 
-
 <DenoiseProfile />
 
 <div class="row">
@@ -136,8 +148,14 @@
 
 <div class="row">
   <label for="gain">Analogue gain</label>
-  <input type="range" min={limits.gainMin} max={limits.gainMax} step="0.05" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
-  <input id="gain" type="number" min={limits.gainMin} max={limits.gainMax} step="0.1" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
+  {#if gainSteps}
+    <select id="gain" disabled={ae} bind:value={gain} onchange={apply}>
+      {#each gainSteps as g}<option value={g}>{g}x</option>{/each}
+    </select>
+  {:else}
+    <input type="range" min={limits.gainMin} max={limits.gainMax} step="0.05" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
+    <input id="gain" type="number" min={limits.gainMin} max={limits.gainMax} step="0.1" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
+  {/if}
 </div>
 <div class="row">
   <label for="digital">Digital gain</label>
@@ -146,7 +164,7 @@
 </div>
 <p class="note" data-testid="applied">{applied}</p>
 <p class="note" data-testid="limits">Limits in this mode: exposure {fmtLimit(limits.expMin)} to {fmtLimit(limits.expMax)} µs,
-  analogue gain {gainFixed ? `fixed at ${fmtLimit(limits.gainMin)}` : `${fmtLimit(limits.gainMin)} to ${fmtLimit(limits.gainMax)}`},
+  analogue gain {gainSteps ? gainSteps.map((g) => `${g}x`).join(", ") : gainFixed ? `fixed at ${fmtLimit(limits.gainMin)}` : `${fmtLimit(limits.gainMin)} to ${fmtLimit(limits.gainMax)}`},
   digital gain 1 to {DIGITAL_MAX}. libcamera uses analogue gain first, up to the maximum, then digital gain
   (ISP only: raw frames, DNG/TIFF and noise figures are not scaled by it).</p>
 

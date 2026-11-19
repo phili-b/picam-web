@@ -33,6 +33,10 @@ STREAM_WIDTH = 960       # width of the preview / JPEG stream
 MAX_CAPTURE_BYTES = 1 << 30   # raw frames kept in memory for one capture (the Pi has 2-8 GB)
 STALL_TIMEOUT = 10.0     # s without a frame before recovering (long exposures go up to ~6.6 s)
 LAUNCHER = None         # command that restarts the service (tests/fake/run_fake.py sets it)
+# Sensors whose analogue gain comes in a few discrete steps (by camera model). libcamera accepts any
+# gain and makes up the rest with ISP digital gain, so the UI offers only these values. poncha110:
+# driver gain codes 0-2, libcamera's camera helper maps a code to code + 1.
+ANALOGUE_GAIN_STEPS = {"poncha110": [1.0, 2.0, 3.0]}
 
 
 def jsonable(value):
@@ -382,6 +386,7 @@ class CameraService:
             "raw": {k: cfg.get("raw", {}).get(k) for k in ("format", "size", "stride")},
             "main": {k: cfg.get("main", {}).get(k) for k in ("format", "size")},
             "is_mono": p.is_mono,
+            "analogue_gain_steps": ANALOGUE_GAIN_STEPS.get(str(p.camera_properties.get("Model", "")).lower()),
             "tuning_file": self.tuning_file,
             "sensor": str(self.sensor_info) if self.sensor_info else None,
         })
