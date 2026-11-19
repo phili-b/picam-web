@@ -246,8 +246,9 @@ class CameraService:
         reg, value, gains = eb
         with self.lock:   # nothing else may change the camera meanwhile
             controls = dict(self.requested)
-            # what was set (the metadata lags it), else what auto exposure chose
-            exposure = int(controls.get("ExposureTime") or self.metadata.get("ExposureTime") or 10000)
+            # what auto exposure chose, else what was set (the metadata lags it)
+            manual = None if controls.get("AeEnable", True) is not False else controls.get("ExposureTime")
+            exposure = int(manual or self.metadata.get("ExposureTime") or 10000)
             try:
                 self.capture_request().release()   # the sensor does not answer on I2C right at stream start
                 self.regs.write(reg, value)
