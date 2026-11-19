@@ -91,9 +91,9 @@ ELECTRICAL_BLACK = {
 }
 MIN_FRAMES = 10
 # The column offsets are means over the rows of many frames; their noise is the pixel noise divided by
-# sqrt(frames x rows / 2): poncha110 at 1 ms, 256 frames: 0.2 / 0.3 / 0.4 DN at gain 1 / 2 / 3 (16 frames:
-# 0.7 / 1.2 / 1.7). libcamera applies the offsets with their fractional part.
-DEFAULT_FRAMES = 256
+# sqrt(frames x rows / 2): poncha110 at 1 ms, 30 frames: 0.55 / 0.9 / 1.3 DN at gain 1 / 2 / 3 (256 frames:
+# 0.2 / 0.3 / 0.4). libcamera applies the offsets with their fractional part.
+DEFAULT_FRAMES = 30
 MAX_FRAMES = 1024
 
 
@@ -104,6 +104,14 @@ def electrical_black(model):
 
 def can_calibrate(model):
     return status()["available"] and electrical_black(model) is not None
+
+
+def maps_missing(model):
+    """True if a gain code of the sensor's electrical black list has no map <dir>/<model>/gain_<code>.pgm."""
+    calibration, _ = _paths()
+    eb = electrical_black(model)
+    return bool(calibration and eb) and not all(
+        os.path.isfile(os.path.join(calibration, model, f"gain_{code}.pgm")) for code in eb[2])
 
 
 def column_offsets(frame):

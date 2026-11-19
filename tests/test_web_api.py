@@ -350,7 +350,10 @@ def test_fpn_calibrate(client, monkeypatch, tmp_path):
     assert d["source"] == "dark frame" and writes == []
     assert b"dark_frame" in (calibration / "fakecam" / "gain_0.pgm").read_bytes()[:200]
     wait_for(lambda: svc.health.state == "streaming")
-    # the automatic calibration at start does the same as the button, with auto set
+    # the automatic calibration at start: nothing while all maps are there, else what the button does
+    svc._auto_calibrate_fpn()
+    assert svc.fpn_calibration["auto"] is False
+    (calibration / "fakecam" / "gain_1.pgm").unlink()
     svc._auto_calibrate_fpn()
     assert svc.fpn_calibration["auto"] is True and svc.fpn_calibration["source"] == "electrical black"
     wait_for(lambda: svc.health.state == "streaming")

@@ -236,10 +236,10 @@ class CameraService:
     AUTO_CALIBRATION_FRAMES = fpn.DEFAULT_FRAMES
 
     def _auto_calibrate_fpn(self):
-        """At every start, calibrate the FPN with electrical black once frames come in: the column
-        pattern of some sensors (poncha110) changes with each power-up of the sensor."""
+        """At start, calibrate the FPN with electrical black once frames come in, but only if a map is
+        missing: the stored maps are kept otherwise (Calibrate makes new ones)."""
         model = str(self.picam2.camera_properties.get("Model", "")).lower()
-        if not fpn.can_calibrate(model):
+        if not (fpn.can_calibrate(model) and fpn.maps_missing(model)):
             return
         deadline = time.monotonic() + 60
         while self.health.state != "streaming":

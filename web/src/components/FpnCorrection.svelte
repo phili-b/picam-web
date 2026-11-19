@@ -7,7 +7,7 @@
   const MIN_FRAMES = 10, MAX_FRAMES = 1024;
   let fpn = $state<Fpn | null>(null);
   let busy = $state(false);
-  let frames = $state(256);
+  let frames = $state(30);
   let electricalBlack = $state(true);
   let msg = $state(""), error = $state(false);
 
@@ -85,7 +85,7 @@
   <p class="note">Subtracts the dark frame of the sensor from the image going to the ISP (raw captures are
     not corrected): only its column pattern, or the full frame. Switching restarts the stream (the exposure
     and gain you set are kept).
-    {#if fpn.can_calibrate}The service calibrates at every start. Calibrate captures new dark frames at every
+    {#if fpn.can_calibrate}The service calibrates at start only when maps are missing. Calibrate captures new dark frames at every
       gain and the current exposure; with electrical black the sensor reads its pixels without their charge, so
       the lens can stay open, but these maps hold the column pattern only. For the full frame mode switch the
       light off (or cover the lens) and calibrate without electrical black.{/if}</p>
