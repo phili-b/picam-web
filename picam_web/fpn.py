@@ -90,6 +90,11 @@ ELECTRICAL_BLACK = {
     "poncha110": (0x0017, 2, {0: 1.0, 1: 2.0, 2: 3.0}),
 }
 MIN_FRAMES = 10
+# The column offsets are means over the rows of many frames; their noise is the pixel noise divided by
+# sqrt(frames x rows / 2): poncha110 at 1 ms, 256 frames: 0.2 / 0.3 / 0.4 DN at gain 1 / 2 / 3 (16 frames:
+# 0.7 / 1.2 / 1.7). libcamera applies the offsets with their fractional part.
+DEFAULT_FRAMES = 256
+MAX_FRAMES = 1024
 
 
 def electrical_black(model):
@@ -108,6 +113,12 @@ def column_offsets(frame):
     for x in (0, 1):
         cols[:, x::2] -= cols[:, x::2].mean(1, keepdims=True)
     return cols
+
+
+def offset_noise(half_a, half_b):
+    """The noise of column_offsets() of the mean of two equal halves, from the half means: std(A - B) / 2.
+    A calibration measures its own precision this way (16-bit DN)."""
+    return float(column_offsets(half_a - half_b).std() / 2)
 
 
 def write_maps(model, maps, comment):

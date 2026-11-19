@@ -4,10 +4,10 @@
   import { api, type Fpn, type FpnCalibration } from "../lib/api";
   import { reloadInfo } from "../lib/live.svelte";
 
-  const MIN_FRAMES = 10;
+  const MIN_FRAMES = 10, MAX_FRAMES = 1024;
   let fpn = $state<Fpn | null>(null);
   let busy = $state(false);
-  let frames = $state(16);
+  let frames = $state(256);
   let electricalBlack = $state(true);
   let msg = $state(""), error = $state(false);
 
@@ -41,7 +41,7 @@
   }
 
   function calibrate() {
-    const n = Math.max(MIN_FRAMES, Math.round(frames));
+    const n = Math.min(MAX_FRAMES, Math.max(MIN_FRAMES, Math.round(frames)));
     run(`Calibrating: ${n} ${electricalBlack ? "electrical black" : "dark"} frames per gain...`, async () => {
       fpn = await api.calibrateFpn(n, electricalBlack);
       return "";
@@ -53,7 +53,8 @@
     if (!c) return "";
     const when = new Date(c.time * 1000).toLocaleTimeString();
     if (c.error) return `${c.auto ? "Automatic calibration at start" : "Calibration"} failed (${when}): ${c.error}`;
-    const lines = c.maps.map((m) => `gain ${m.gain}: column FPN ${m.column_fpn} (16-bit DN)`);
+    const lines = c.maps.map((m) => `gain ${m.gain}: column FPN ${m.column_fpn}`
+      + (m.offset_noise == null ? "" : `, correction noise ${m.offset_noise.toFixed(2)}`) + " (16-bit DN)");
     return `${c.auto ? "Calibrated automatically at start" : "Calibrated"} ${when}, ${c.source}, ${c.frames} frames at `
       + `${(c.exposure_us / 1000).toFixed(2)} ms:\n${lines.join("\n")}`;
   }
@@ -73,7 +74,7 @@
   {#if fpn.can_calibrate}
     <div class="row">
       <label for="fpn-frames">FPN calibration</label>
-      <input id="fpn-frames" type="number" min={MIN_FRAMES} max="256" bind:value={frames} disabled={busy}
+      <input id="fpn-frames" type="number" min={MIN_FRAMES} max={MAX_FRAMES} bind:value={frames} disabled={busy}
         style="width: 5em" title="Frames averaged per gain" />
       <button onclick={calibrate} disabled={busy}>Calibrate</button>
       <label class="inline"><input type="checkbox" bind:checked={electricalBlack} disabled={busy} /> electrical black</label>

@@ -264,12 +264,12 @@ class Camera:
         body = {k: v for k, v in (("enabled", None if enabled is None else bool(enabled)), ("mode", mode)) if v is not None}
         return self._request("PUT", "/api/fpn", body=body, timeout=60)
 
-    def calibrate_fpn(self, frames=16, electrical_black=True):
+    def calibrate_fpn(self, frames=256, electrical_black=True):
         """Capture new FPN maps: frames (at least 10) per analogue gain at the current exposure. With
         electrical_black the sensor's electrical black readout is used (no lens cover needed; the maps
         hold the column pattern); without it normal dark frames (switch the light off first; for the full
-        frame mode). Only when fpn()['can_calibrate']. Returns the maps written, with their mean and
-        column FPN in 16-bit DN."""
+        frame mode). Only when fpn()['can_calibrate']. Returns the maps written, with their mean, column FPN
+        and offset noise (the precision of the correction) in 16-bit DN."""
         return self._request("POST", "/api/fpn/calibrate",
                              body={"frames": int(frames), "electrical_black": bool(electrical_black)}, timeout=600)
 

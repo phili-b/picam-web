@@ -233,7 +233,7 @@ class CameraService:
             if controls:
                 self.set_controls(controls)
 
-    AUTO_CALIBRATION_FRAMES = 16
+    AUTO_CALIBRATION_FRAMES = fpn.DEFAULT_FRAMES
 
     def _auto_calibrate_fpn(self):
         """At every start, calibrate the FPN with electrical black once frames come in: the column
@@ -264,7 +264,7 @@ class CameraService:
             if controls:
                 self.set_controls(controls)
 
-    def calibrate_fpn(self, frames=16, electrical_black=True, auto=False):
+    def calibrate_fpn(self, frames=fpn.DEFAULT_FRAMES, electrical_black=True, auto=False):
         """Capture new FPN maps: average `frames` raw frames at every analogue gain, at the current
         exposure, and store them (fpn.write_maps). With electrical_black the sensor reads its pixels
         without their charge, so the lens can stay open; these maps hold the column pattern. Without it
@@ -276,8 +276,8 @@ class CameraService:
         eb = fpn.electrical_black(model)
         if eb is None or not fpn.status()["available"]:
             raise ValueError(f"FPN calibration is not available for {model or 'this sensor'}")
-        if frames < fpn.MIN_FRAMES:
-            raise ValueError(f"at least {fpn.MIN_FRAMES} frames")
+        if not fpn.MIN_FRAMES <= frames <= fpn.MAX_FRAMES:
+            raise ValueError(f"{fpn.MIN_FRAMES} to {fpn.MAX_FRAMES} frames")
         reg, value, gains = eb
         with self.lock:   # nothing else may change the camera meanwhile
             controls = dict(self.requested)
@@ -288,7 +288,8 @@ class CameraService:
                 self.capture_request().release()   # the sensor does not answer on I2C right at stream start
                 if electrical_black:
                     self.regs.write(reg, value)
-                maps = {code: (self._average_frames(frames, exposure, gain), gain) for code, gain in gains.items()}
+                averages = {code: self._average_frames(frames, exposure, gain) for code, gain in gains.items()}
+                maps = {code: (mean, gains[code]) for code, (mean, _) in averages.items()}
                 source = f"electrical_black 0x{reg:04x}={value}" if electrical_black else "dark_frame"
                 paths = fpn.write_maps(model, maps, f"exposure_us {exposure} frames {frames} {source}")
             finally:
@@ -303,14 +304,17 @@ class CameraService:
                   "source": "electrical black" if electrical_black else "dark frame", "auto": auto,
                   "time": time.time(),
                   "maps": [{"gain_code": code, "gain": gain, "mean": round(float(maps[code][0].mean()), 2),
-                            "column_fpn": round(float(fpn.column_offsets(maps[code][0]).std()), 2), "path": path}
+                            "column_fpn": round(float(fpn.column_offsets(maps[code][0]).std()), 2),
+                            "offset_noise": round(averages[code][1], 3), "path": path}
                            for (code, gain), path in zip(sorted(gains.items()), paths)]}
         self.fpn_calibration = result
         return result
 
     def _average_frames(self, count, exposure, gain):
-        """Mean of count raw frames at a fixed exposure and gain, in the values of the 16-bit raw stream
-        (what libcamera's maps hold, not shifted to the sensor's bit depth). Hold self.lock."""
+        """(mean, offset noise) of count raw frames at a fixed exposure and gain. The mean is in the values
+        of the 16-bit raw stream (what libcamera's maps hold, not shifted to the sensor's bit depth); the
+        offset noise (fpn.offset_noise, from the even and the odd frames) is the precision of the column
+        offsets libcamera derives from it. Hold self.lock."""
         fmt, (w, h), _, _ = self.raw_info()
         if analysis.bit_depth(fmt) != 16:
             raise ValueError(f"raw format {fmt}: the FPN maps need a 16-bit unpacked raw stream (Pi 5)")
@@ -318,7 +322,8 @@ class CameraService:
         # Frames already in the buffer queue were read out before a register write (the electrical
         # black): skip a full queue plus 2 frames once the gain is right
         skip = self.picam2.camera_config.get("buffer_count", 4) + 2
-        settled, total, n = 0, np.zeros((h, w)), 0
+        settled, halves, n = 0, np.zeros((2, h, w)), 0
+        count += count % 2   # two equal halves
         for _ in range(count + skip + 40):
             request = self.capture_request()
             try:
@@ -326,13 +331,14 @@ class CameraService:
                 if settled < skip:
                     settled = settled + 1 if abs(md.get("AnalogueGain", 0) - gain) < 0.05 * gain else 0
                 else:
-                    total += request.make_array("raw").view(np.uint16)[:h, :w]
+                    halves[n % 2] += request.make_array("raw").view(np.uint16)[:h, :w]
                     n += 1
             finally:
                 request.release()
             health.sd_notify("WATCHDOG=1")   # the lock is held for long, but frames come in
             if n == count:
-                return total / n
+                a, b = halves / (n // 2)
+                return (a + b) / 2, fpn.offset_noise(a, b)
         raise RuntimeError(f"the analogue gain did not settle at {gain}")
 
     # Health and recovery ------------------------------------------------------------------

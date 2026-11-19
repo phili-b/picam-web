@@ -184,7 +184,7 @@ def fpn_set(enabled: bool | None = Body(None, embed=True), mode: str | None = Bo
 
 @app.post("/api/fpn/calibrate", summary="Capture new FPN maps with the sensor's electrical black readout (no lens "
                                         "cover needed): frames per analogue gain, at the current exposure")
-def fpn_calibrate(frames: int = Body(16, embed=True, ge=fpn.MIN_FRAMES, le=256),
+def fpn_calibrate(frames: int = Body(fpn.DEFAULT_FRAMES, embed=True, ge=fpn.MIN_FRAMES, le=fpn.MAX_FRAMES),
                   electrical_black: bool = Body(True, embed=True)):
     try:
         result = service.calibrate_fpn(frames, electrical_black)

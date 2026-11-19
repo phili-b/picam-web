@@ -131,7 +131,7 @@ export interface FpnCalibration {
   auto: boolean;
   time: number;      // s since the epoch
   error?: string;    // a failed automatic calibration
-  maps: { gain_code: number; gain: number; mean: number; column_fpn: number; path: string }[];
+  maps: { gain_code: number; gain: number; mean: number; column_fpn: number; offset_noise?: number; path: string }[];
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {

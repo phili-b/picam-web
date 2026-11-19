@@ -332,6 +332,7 @@ def test_fpn_calibrate(client, monkeypatch, tmp_path):
     assert c["source"] == "electrical black" and c["auto"] is False
     assert client.get("/api/fpn").json()["last_calibration"]["maps"] == c["maps"]
     assert [m["gain_code"] for m in c["maps"]] == [0, 1] and c["maps"][0]["column_fpn"] > 0
+    assert all(m["offset_noise"] >= 0 for m in c["maps"])
     assert writes == [(0x0017, 2), (0x0017, 0)] and svc.regs.read(0x0017) == 0
     assert (calibration / "fakecam.previous" / "gain_0.pgm").read_bytes() == b"old"
     data = (calibration / "fakecam" / "gain_1.pgm").read_bytes()
