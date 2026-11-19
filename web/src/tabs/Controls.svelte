@@ -6,6 +6,7 @@
   import WhiteBalance from "../components/WhiteBalance.svelte";
   import TuningFile from "../components/TuningFile.svelte";
   import CameraModel from "../components/CameraModel.svelte";
+  import DenoiseProfile from "../components/DenoiseProfile.svelte";
 
   let ae = $state(true);
   let exposure = $state(10000);   // us
@@ -117,6 +118,9 @@
     {/each}
   </select>
 </div>
+
+
+<DenoiseProfile />
 
 <div class="row">
   <label for="ae">Auto exposure</label>
