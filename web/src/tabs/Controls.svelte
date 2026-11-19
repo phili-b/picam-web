@@ -31,6 +31,10 @@
   let gainSteps = $state<number[] | null>(null);
   const nearestStep = (g: number) => gainSteps!.reduce((a, b) => (Math.abs(b - g) < Math.abs(a - g) ? b : a));
   const gainIndex = $derived(gainSteps ? gainSteps.indexOf(nearestStep(gain)) : 0);
+  // libcamera has no digital gain control: it is asked for a total gain and fills the analogue gain
+  // first, up to its maximum. So a digital gain above 1 only exists with the analogue gain at its
+  // maximum; below that the digital gain is 1 and the analogue gain is sent as it is
+  const atGainMax = $derived(gain >= limits.gainMax - 1e-3);
   const fmtLimit = (x: number) => (Math.abs(x) >= 100 ? Math.round(x).toLocaleString("en") : String(Math.round(x * 100) / 100));
 
   function say(text: string, isError = false) { msg = text; error = isError; }
@@ -62,6 +66,7 @@
     exposure = Math.min(limits.expMax, Math.max(limits.expMin, exposure));
     gain = Math.min(limits.gainMax, Math.max(limits.gainMin, gain));
     if (gainSteps) gain = nearestStep(gain);
+    if (gain < limits.gainMax - 1e-3) digital = 1;
   }
 
   // The gains the camera applies; with auto exposure on, the fields follow the camera
@@ -93,10 +98,10 @@
     exposure = clamp(exposure, limits.expMin, limits.expMax);
     gain = clamp(gain, limits.gainMin, limits.gainMax);
     if (gainSteps) gain = nearestStep(gain);
-    digital = clamp(digital, 1, DIGITAL_MAX);
+    digital = atGainMax ? clamp(digital, 1, DIGITAL_MAX) : 1;
     const v: Record<string, unknown> = { AeEnable: ae };
-    // libcamera has no digital gain control: a gain above the analogue maximum is applied
-    // as digital gain in the ISP, so the total gain is sent
+    // The total gain is sent (see atGainMax): libcamera applies the part above the analogue
+    // maximum as digital gain in the ISP
     if (!ae) { v.ExposureTime = Math.round(exposure); v.AnalogueGain = Math.round(gain * digital * 1000) / 1000; }
     try {
       const r = await api.setControls(v, remember);
@@ -169,9 +174,13 @@
 </div>
 <div class="row">
   <label for="digital">Digital gain</label>
-  <input type="range" min="1" max={DIGITAL_MAX} step="0.05" disabled={ae} bind:value={digital} onchange={apply} />
-  <input id="digital" type="number" min="1" max={DIGITAL_MAX} step="0.1" disabled={ae} bind:value={digital} onchange={apply} />
+  <input type="range" min="1" max={DIGITAL_MAX} step="0.05" disabled={ae || !atGainMax} bind:value={digital} onchange={apply} />
+  <input id="digital" type="number" min="1" max={DIGITAL_MAX} step="0.1" disabled={ae || !atGainMax} bind:value={digital} onchange={apply} />
 </div>
+{#if !ae && !atGainMax}
+  <p class="note" data-testid="digital-note">Digital gain is available with the analogue gain at its maximum
+    ({fmtLimit(limits.gainMax)}x): libcamera uses the analogue gain first.</p>
+{/if}
 <p class="note" data-testid="applied">{applied}</p>
 <p class="note" data-testid="applied-digital">{appliedDigital}</p>
 <p class="note" data-testid="limits">Limits in this mode: exposure {fmtLimit(limits.expMin)} to {fmtLimit(limits.expMax)} µs,
