@@ -1,7 +1,6 @@
 <script lang="ts">
   // White balance: automatic for a chosen illuminant, or by hand with red and blue gains. Shown only for colour cameras (mono cameras have no AWB controls).
   import { api } from "../lib/api";
-  import { every } from "../lib/live.svelte";
 
   let { remember = false }: { remember?: boolean } = $props();
 
@@ -50,7 +49,7 @@
   // What the camera applies; with auto on, the fields follow it
   $effect(() => {
     if (!available) return;
-    return every(async () => {
+    const id = setInterval(async () => {
       try {
         const md = await api.metadata();
         const gains = md.ColourGains as number[] | undefined;
@@ -61,7 +60,8 @@
         red = round2(gains[0]);
         blue = round2(gains[1]);
       } catch { /* shown by the status line */ }
-    }, 1000);
+    }, 500);
+    return () => clearInterval(id);
   });
 
   $effect(() => { load().catch((e) => { msg = e.message; error = true; }); });
