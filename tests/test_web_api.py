@@ -270,6 +270,96 @@ def test_tuning(client, monkeypatch, tmp_path):
     wait_for(lambda: len(restarts) == 2)
 
 
+def test_fpn(client, monkeypatch, tmp_path):
+    svc = server.service
+    assert client.get("/api/fpn").json() == {"available": False, "enabled": False, "mode": "column",
+                                             "can_calibrate": False, "last_calibration": None}
+    assert client.put("/api/fpn", json={"enabled": True}).status_code == 400
+    calibration, link = tmp_path / "fpn", tmp_path / "fpn-active"
+    calibration.mkdir()
+    try:
+        (tmp_path / "probe").symlink_to(calibration)
+    except OSError:
+        pytest.skip("no symlinks here (Windows without developer mode)")
+    monkeypatch.setenv("PICAM_FPN_DIR", str(calibration))
+    monkeypatch.setenv("PICAM_FPN_LINK", str(link))
+    assert client.get("/api/fpn").json() == {"available": True, "enabled": False, "mode": "column",
+                                             "can_calibrate": False, "last_calibration": None}
+    client.post("/api/controls", json={"ExposureTime": 7000, "AeEnable": False})
+    mode = svc.mode_index
+    assert client.put("/api/fpn", json={"enabled": True}).json()["enabled"] is True
+    assert link.is_symlink() and link.resolve() == calibration.resolve()
+    wait_for(lambda: svc.health.state == "streaming")
+    assert svc.mode_index == mode and svc.requested["ExposureTime"] == 7000  # reconfigured, controls kept
+    assert client.put("/api/fpn", json={"enabled": False}).json()["enabled"] is False
+    assert not link.exists() and calibration.is_dir()
+    wait_for(lambda: svc.health.state == "streaming")
+    # the mode: a file in the calibration directory, read by libcamera on every configure
+    assert client.put("/api/fpn", json={"mode": "full"}).json()["mode"] == "full"
+    assert (calibration / "fpn_mode").read_text().strip() == "full"
+    wait_for(lambda: svc.health.state == "streaming")
+    assert client.put("/api/fpn", json={"mode": "rows"}).status_code == 400
+    assert client.put("/api/fpn", json={"mode": "column"}).json()["mode"] == "column"
+    wait_for(lambda: svc.health.state == "streaming")
+    link.mkdir()  # a real directory at the link path is never replaced
+    assert client.get("/api/fpn").json()["available"] is False
+    client.post("/api/controls", json={"AeEnable": True})
+
+
+def test_fpn_calibrate(client, monkeypatch, tmp_path):
+    """Electrical black calibration: one map per gain code at the current exposure, the old maps kept, the
+    register written back to 0, the correction state and the controls as before."""
+    svc = server.service
+    import fpn
+    calibration = tmp_path / "fpn"
+    old = calibration / "fakecam"
+    old.mkdir(parents=True)
+    (old / "gain_0.pgm").write_bytes(b"old")
+    monkeypatch.setenv("PICAM_FPN_DIR", str(calibration))
+    monkeypatch.setenv("PICAM_FPN_LINK", str(tmp_path / "fpn-active"))
+    assert client.post("/api/fpn/calibrate", json={"frames": 16}).status_code == 400   # no electrical black
+    monkeypatch.setitem(fpn.ELECTRICAL_BLACK, "fakecam", (0x0017, 2, {0: 1.0, 1: 2.0}))
+    assert client.get("/api/fpn").json()["can_calibrate"] is True
+    assert client.post("/api/fpn/calibrate", json={"frames": 9}).status_code == 422    # at least 10
+    client.post("/api/controls", json={"ExposureTime": 7000, "AeEnable": False})
+    writes = []
+    write = svc.regs.write
+    monkeypatch.setattr(svc.regs, "write", lambda reg, value, *a, **k: (writes.append((reg, value)), write(reg, value, *a, **k)))
+    r = client.post("/api/fpn/calibrate", json={"frames": 10})
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert c["frames"] == 10 and c["exposure_us"] == 7000 and c["enabled"] is False
+    assert c["source"] == "electrical black" and c["auto"] is False
+    assert client.get("/api/fpn").json()["last_calibration"]["maps"] == c["maps"]
+    assert [m["gain_code"] for m in c["maps"]] == [0, 1] and c["maps"][0]["column_fpn"] > 0
+    assert all(m["offset_noise"] >= 0 for m in c["maps"])
+    assert writes == [(0x0017, 2), (0x0017, 0)] and svc.regs.read(0x0017) == 0
+    assert (calibration / "fakecam.previous" / "gain_0.pgm").read_bytes() == b"old"
+    data = (calibration / "fakecam" / "gain_1.pgm").read_bytes()
+    magic, comment, size, maxval, pixels = data.split(b"\n", 4)
+    assert magic == b"P5" and comment.startswith(b"# sensor fakecam gain_code 1 gain 2.000 exposure_us 7000 frames 10")
+    w, h = svc.raw_info()[1]
+    assert size == f"{w} {h}".encode() and maxval == b"65535" and len(pixels) == w * h * 2
+    # 16-bit stream values (the fake's 12-bit frames are left-aligned), not shifted to the sensor depth
+    assert np.frombuffer(pixels, ">u2").mean() > 4096
+    wait_for(lambda: svc.health.state == "streaming")
+    assert svc.requested["ExposureTime"] == 7000 and svc.requested["AeEnable"] is False   # controls kept
+    # dark frames instead of electrical black: the register is left alone
+    writes.clear()
+    d = client.post("/api/fpn/calibrate", json={"frames": 10, "electrical_black": False}).json()
+    assert d["source"] == "dark frame" and writes == []
+    assert b"dark_frame" in (calibration / "fakecam" / "gain_0.pgm").read_bytes()[:200]
+    wait_for(lambda: svc.health.state == "streaming")
+    # the automatic calibration at start: nothing while all maps are there, else what the button does
+    svc._auto_calibrate_fpn()
+    assert svc.fpn_calibration["auto"] is False
+    (calibration / "fakecam" / "gain_1.pgm").unlink()
+    svc._auto_calibrate_fpn()
+    assert svc.fpn_calibration["auto"] is True and svc.fpn_calibration["source"] == "electrical black"
+    wait_for(lambda: svc.health.state == "streaming")
+    client.post("/api/controls", json={"AeEnable": True})
+
+
 def test_health_auto_reboot(client):
     h = client.get("/api/health").json()
     assert h["state"] == "streaming" and h["instance"]

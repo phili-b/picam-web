@@ -20,6 +20,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "picam_viewer"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analysis  # noqa: E402
+import fpn  # noqa: E402
 import health  # noqa: E402
 import isp_stats  # noqa: E402
 import live  # noqa: E402
@@ -177,6 +178,8 @@ class CameraService:
             except (KeyError, ValueError, RuntimeError, TypeError) as e:
                 log.warning("could not restore controls: %s", e)
         threading.Thread(target=self._monitor, daemon=True).start()
+        self.fpn_calibration = None   # the last FPN calibration: what calibrate_fpn returned, or an error
+        threading.Thread(target=self._auto_calibrate_fpn, daemon=True).start()
         health.sd_notify("READY=1")
         interval = health.watchdog_interval()
         if interval:
@@ -219,6 +222,124 @@ class CameraService:
             self.requested = {}   # a new configuration starts with the default controls
             self.started = time.monotonic()
             self.health.set("starting", f"Starting sensor mode {mode['unpacked']} {w}x{h}")
+
+    def set_fpn(self, enabled):
+        """Turn libcamera's FPN correction on or off: libcamera looks for the dark frames each time
+        the camera is configured, so switch them (see fpn.py) and configure again, keeping the controls."""
+        with self.lock:
+            fpn.set_enabled(enabled)
+            controls = dict(self.requested)
+            self.configure(self.mode_index)
+            if controls:
+                self.set_controls(controls)
+
+    AUTO_CALIBRATION_FRAMES = fpn.DEFAULT_FRAMES
+
+    def _auto_calibrate_fpn(self):
+        """At start, calibrate the FPN with electrical black once frames come in, but only if a map is
+        missing: the stored maps are kept otherwise (Calibrate makes new ones)."""
+        model = str(self.picam2.camera_properties.get("Model", "")).lower()
+        if not (fpn.can_calibrate(model) and fpn.maps_missing(model)):
+            return
+        deadline = time.monotonic() + 60
+        while self.health.state != "streaming":
+            if time.monotonic() > deadline:
+                log.warning("FPN auto calibration skipped: the camera does not stream")
+                return
+            time.sleep(0.5)
+        try:
+            self.calibrate_fpn(self.AUTO_CALIBRATION_FRAMES, auto=True)
+            log.info("FPN auto calibration done")
+        except Exception as e:  # noqa: BLE001 - the service must start anyway
+            log.warning("FPN auto calibration failed: %s", e)
+            self.fpn_calibration = {"auto": True, "error": str(e), "time": time.time()}
+
+    def set_fpn_mode(self, mode):
+        """Column or full frame correction (fpn.set_mode); the camera is configured again, keeping the
+        controls."""
+        with self.lock:
+            fpn.set_mode(mode)
+            controls = dict(self.requested)
+            self.configure(self.mode_index)
+            if controls:
+                self.set_controls(controls)
+
+    def calibrate_fpn(self, frames=fpn.DEFAULT_FRAMES, electrical_black=True, auto=False):
+        """Capture new FPN maps: average `frames` raw frames at every analogue gain, at the current
+        exposure, and store them (fpn.write_maps). With electrical_black the sensor reads its pixels
+        without their charge, so the lens can stay open; these maps hold the column pattern. Without it
+        the frames are normal dark frames (switch the light off or cover the lens first), for the full
+        frame mode. libcamera corrects only the ISP input, never the raw stream, so this works with the
+        correction on or off. The camera is then configured again, which loads the new maps; the
+        controls set are kept."""
+        model = str(self.picam2.camera_properties.get("Model", "")).lower()
+        eb = fpn.electrical_black(model)
+        if eb is None or not fpn.status()["available"]:
+            raise ValueError(f"FPN calibration is not available for {model or 'this sensor'}")
+        if not fpn.MIN_FRAMES <= frames <= fpn.MAX_FRAMES:
+            raise ValueError(f"{fpn.MIN_FRAMES} to {fpn.MAX_FRAMES} frames")
+        reg, value, gains = eb
+        with self.lock:   # nothing else may change the camera meanwhile
+            controls = dict(self.requested)
+            # what auto exposure chose, else what was set (the metadata lags it)
+            manual = None if controls.get("AeEnable", True) is not False else controls.get("ExposureTime")
+            exposure = int(manual or self.metadata.get("ExposureTime") or 10000)
+            try:
+                self.capture_request().release()   # the sensor does not answer on I2C right at stream start
+                if electrical_black:
+                    self.regs.write(reg, value)
+                averages = {code: self._average_frames(frames, exposure, gain) for code, gain in gains.items()}
+                maps = {code: (mean, gains[code]) for code, (mean, _) in averages.items()}
+                source = f"electrical_black 0x{reg:04x}={value}" if electrical_black else "dark_frame"
+                paths = fpn.write_maps(model, maps, f"exposure_us {exposure} frames {frames} {source}")
+            finally:
+                try:
+                    if electrical_black:
+                        self.regs.write(reg, 0)
+                finally:
+                    self.configure(self.mode_index)   # also loads the new maps
+                    if controls:
+                        self.set_controls(controls)
+        result = {"sensor": model, "frames": frames, "exposure_us": exposure,
+                  "source": "electrical black" if electrical_black else "dark frame", "auto": auto,
+                  "time": time.time(),
+                  "maps": [{"gain_code": code, "gain": gain, "mean": round(float(maps[code][0].mean()), 2),
+                            "column_fpn": round(float(fpn.column_offsets(maps[code][0]).std()), 2),
+                            "offset_noise": round(averages[code][1], 3), "path": path}
+                           for (code, gain), path in zip(sorted(gains.items()), paths)]}
+        self.fpn_calibration = result
+        return result
+
+    def _average_frames(self, count, exposure, gain):
+        """(mean, offset noise) of count raw frames at a fixed exposure and gain. The mean is in the values
+        of the 16-bit raw stream (what libcamera's maps hold, not shifted to the sensor's bit depth); the
+        offset noise (fpn.offset_noise, from the even and the odd frames) is the precision of the column
+        offsets libcamera derives from it. Hold self.lock."""
+        fmt, (w, h), _, _ = self.raw_info()
+        if analysis.bit_depth(fmt) != 16:
+            raise ValueError(f"raw format {fmt}: the FPN maps need a 16-bit unpacked raw stream (Pi 5)")
+        self.picam2.set_controls({"AeEnable": False, "ExposureTime": exposure, "AnalogueGain": gain})
+        # Frames already in the buffer queue were read out before a register write (the electrical
+        # black): skip a full queue plus 2 frames once the gain is right
+        skip = self.picam2.camera_config.get("buffer_count", 4) + 2
+        settled, halves, n = 0, np.zeros((2, h, w)), 0
+        count += count % 2   # two equal halves
+        for _ in range(count + skip + 40):
+            request = self.capture_request()
+            try:
+                md = request.get_metadata()
+                if settled < skip:
+                    settled = settled + 1 if abs(md.get("AnalogueGain", 0) - gain) < 0.05 * gain else 0
+                else:
+                    halves[n % 2] += request.make_array("raw").view(np.uint16)[:h, :w]
+                    n += 1
+            finally:
+                request.release()
+            health.sd_notify("WATCHDOG=1")   # the lock is held for long, but frames come in
+            if n == count:
+                a, b = halves / (n // 2)
+                return (a + b) / 2, fpn.offset_noise(a, b)
+        raise RuntimeError(f"the analogue gain did not settle at {gain}")
 
     # Health and recovery ------------------------------------------------------------------
     @property

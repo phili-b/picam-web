@@ -24,6 +24,7 @@ from starlette.background import BackgroundTask
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera_service  # noqa: E402
 import camera_overlay  # noqa: E402
+import fpn  # noqa: E402
 import health  # noqa: E402
 
 VERSION = "1.2.3"
@@ -147,6 +148,52 @@ def set_mode(index: int = Body(..., embed=True)):
         _unavailable(f"switching to mode {index} failed: {e}")
     service.remember()
     return {"mode": index, "rois": service.rois()}
+
+
+@app.get("/api/fpn", summary="FPN (dark frame) correction: {available, enabled, can_calibrate}; available needs "
+                             "PICAM_FPN_DIR and PICAM_FPN_LINK")
+def fpn_get():
+    return _fpn_status()
+
+
+def _fpn_status():
+    """fpn.status() plus can_calibrate (the sensor has an electrical black readout: no lens cover needed)
+    and last_calibration (the last calibration of this service, also the automatic one at start)."""
+    model = service.picam2.camera_properties.get("Model", "")
+    return {**fpn.status(), "can_calibrate": fpn.can_calibrate(model),
+            "last_calibration": getattr(service, "fpn_calibration", None)}
+
+
+@app.put("/api/fpn", summary="Turn the FPN correction on or off and/or set its mode (column or full); the camera is "
+                             "configured again, as for a mode switch")
+def fpn_set(enabled: bool | None = Body(None, embed=True), mode: str | None = Body(None, embed=True)):
+    if not fpn.status()["available"]:
+        _bad("FPN correction is not set up (see PICAM_FPN_DIR and PICAM_FPN_LINK)")
+    if mode is not None and mode not in fpn.MODES:
+        _bad(f"mode {mode!r}: one of {', '.join(fpn.MODES)}")
+    try:
+        if mode is not None:
+            service.set_fpn_mode(mode)
+        if enabled is not None:
+            service.set_fpn(enabled)
+    except Exception as e:  # noqa: BLE001 - libcamera errors: report them, the monitor recovers the camera
+        log.exception("FPN switch failed")
+        _unavailable(f"switching the FPN correction failed: {e}")
+    return _fpn_status()
+
+
+@app.post("/api/fpn/calibrate", summary="Capture new FPN maps with the sensor's electrical black readout (no lens "
+                                        "cover needed): frames per analogue gain, at the current exposure")
+def fpn_calibrate(frames: int = Body(fpn.DEFAULT_FRAMES, embed=True, ge=fpn.MIN_FRAMES, le=fpn.MAX_FRAMES),
+                  electrical_black: bool = Body(True, embed=True)):
+    try:
+        result = service.calibrate_fpn(frames, electrical_black)
+    except ValueError as e:
+        _bad(e)
+    except Exception as e:  # noqa: BLE001 - libcamera or I2C errors: report them, the monitor recovers the camera
+        log.exception("FPN calibration failed")
+        _unavailable(f"the FPN calibration failed: {e}")
+    return {**result, **_fpn_status()}
 
 
 @app.get("/api/frames", summary="Frame counter, measured/expected fps, dropped frames, the raw area the "

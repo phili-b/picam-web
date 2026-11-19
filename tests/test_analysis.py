@@ -58,6 +58,15 @@ def test_raw_to_image_pi5_left_aligned():
     assert img.tolist() == np.arange(w * h).reshape(h, w).tolist()
 
 
+def test_raw_to_image_left_aligned_with_fpn_correction():
+    """libcamera's FPN correction fills the low bits of a left-aligned frame (offsets in 16-bit units)."""
+    rng = np.random.default_rng(1)
+    dn = rng.integers(25, 40, (8, 8)).astype(np.uint16)
+    data = (dn << 6) + rng.integers(-30, 30, (8, 8)).astype(np.int16).astype(np.uint16)
+    img, bits = analysis.raw_to_image(data.view(np.uint8), "R16", (8, 8), 10)
+    assert bits == 10 and abs(img.astype(int) - dn).max() <= 1
+
+
 def test_raw_to_image_pi4_and_8bit():
     data = (np.arange(8, dtype=np.uint16) * 100).reshape(2, 4)
     img, bits = analysis.raw_to_image(data.view(np.uint8), "R12", (4, 2), 12)

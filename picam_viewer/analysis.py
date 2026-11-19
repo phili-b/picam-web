@@ -29,7 +29,9 @@ def raw_to_image(array, stream_fmt, size, sensor_bits=None):
     8-bit modes were seen both left- and right-aligned depending on the
     configuration, so the alignment is taken from the data: if no pixel has
     any of the low 16 - bits bits set, the frame is shifted back. (A real,
-    noisy right-aligned frame always has some of those bits set.) On a Pi 4
+    noisy right-aligned frame always has some of those bits set.) A pixel above the
+    sensor's maximum also proves a left-aligned frame: libcamera's FPN correction
+    subtracts offsets in 16-bit units, which fills the low bits. On a Pi 4
     (VC4) the stream keeps the sensor depth ('R12', 'SRGGB10'), right-aligned.
     Returns (image, bit_depth).
     """
@@ -45,7 +47,8 @@ def raw_to_image(array, stream_fmt, size, sensor_bits=None):
     if stream_bits == 16 and bits < 16:
         low = (1 << (16 - bits)) - 1
         # (a strided sample of the frame is enough to see the alignment)
-        if not np.any(img[::max(1, h // 64), ::max(1, w // 64)] & low):
+        sample = img[::max(1, h // 64), ::max(1, w // 64)]
+        if not np.any(sample & low) or sample.max() > (1 << bits) - 1:
             img = img >> (16 - bits)
     return img, bits
 

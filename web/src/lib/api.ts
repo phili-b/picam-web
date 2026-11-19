@@ -111,6 +111,29 @@ export interface CameraOverlay {
   reboot_pending: boolean;
 }
 
+/** libcamera's FPN (dark frame) correction; available only when the service has it set up. */
+export interface Fpn {
+  available: boolean;
+  enabled: boolean;
+  /** what libcamera subtracts: the column pattern of the maps or the full frame */
+  mode: "column" | "full";
+  /** the sensor has an electrical black readout: new maps can be captured without covering the lens */
+  can_calibrate: boolean;
+  /** the last calibration of the service (also the automatic one at start), or null */
+  last_calibration: FpnCalibration | null;
+}
+
+export interface FpnCalibration {
+  sensor: string;
+  frames: number;
+  exposure_us: number;
+  source: "electrical black" | "dark frame";
+  auto: boolean;
+  time: number;      // s since the epoch
+  error?: string;    // a failed automatic calibration
+  maps: { gain_code: number; gain: number; mean: number; column_fpn: number; offset_noise?: number; path: string }[];
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
     method,
@@ -205,6 +228,10 @@ export const api = {
   setMode: (index: number) => post<{ mode: number; rois: Roi[] }>("/api/mode", { index }),
   tuning: () => get<{ current: string | null; files: string[] }>("/api/tuning"),
   setTuning: (path: string | null) => post<{ instance: string }>("/api/tuning", { path }),
+  fpn: () => get<Fpn>("/api/fpn"),
+  setFpn: (change: { enabled?: boolean; mode?: Fpn["mode"] }) => put<Fpn>("/api/fpn", change),
+  calibrateFpn: (frames: number, electrical_black = true) =>
+    post<FpnCalibration & Fpn>("/api/fpn/calibrate", { frames, electrical_black }),
   cameraOverlay: () => get<CameraOverlay>("/api/camera_overlay"),
   setCameraOverlay: (overlay: string, port: "cam0" | "cam1", mono: boolean) =>
     put<CameraOverlay>("/api/camera_overlay", { overlay, port, mono }),
