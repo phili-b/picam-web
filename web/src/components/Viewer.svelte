@@ -3,6 +3,7 @@
   // Shift+drag to draw a ROI. Zoomed in far enough, the raw pixels themselves are drawn (from
   // /api/raw/crop, in DN) with a grid and their values. All drawing happens in one
   // requestAnimationFrame loop outside Svelte's rendering, so mouse moves never re-render the page.
+  import { untrack } from "svelte";
   import { api, type RawCrop } from "../lib/api";
   import { every, live } from "../lib/live.svelte";
 
@@ -57,9 +58,15 @@
   function resize() {
     const r = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(r.width * dpr));
-    canvas.height = Math.max(1, Math.round(r.height * dpr));
+    const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    // Setting the canvas size clears it: only when it changed, and draw again at once, or the
+    // browser can show a black frame
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
     if (fitted) fit();
+    draw();
   }
 
   function zoomAt(x: number, y: number, factor: number) {
@@ -310,7 +317,10 @@
     return () => { document.removeEventListener("visibilitychange", onVisibility); ctl?.abort(); };
   });
 
-  $effect(() => {
+  // Set up once: untracked, so the live state read while setting up (fetchCrop and draw read
+  // live.info and live.frames) does not make Svelte run this again on every poll, which cleared the
+  // canvas (a black frame) once a second
+  $effect(() => untrack(() => {
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(container);
@@ -319,7 +329,7 @@
     raf = requestAnimationFrame(loop);
     const stopCrop = every(fetchCrop, 250);
     return () => { cancelAnimationFrame(raf); stopCrop(); ro.disconnect(); };
-  });
+  }));
 </script>
 
 <div class="viewer" bind:this={container}>
