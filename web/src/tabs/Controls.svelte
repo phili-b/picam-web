@@ -12,7 +12,8 @@
   let exposure = $state(10000);   // us
   let gain = $state(1);
   let digital = $state(1);       // ISP digital gain on top of the analogue gain
-  let applied = $state("");
+  let applied = $state("");        // what the camera applies to the sensor (raw frames)
+  let appliedDigital = $state("");
   const DIGITAL_MAX = 4;          // libcamera's AGC max_digital_gain (tuning file default)
   let remember = $state(false);
   let msg = $state(""), error = $state(false);
@@ -67,7 +68,12 @@
         const md = await api.metadata();
         const a = typeof md.AnalogueGain === "number" ? md.AnalogueGain : null;
         const d = typeof md.DigitalGain === "number" ? md.DigitalGain : null;
-        if (a !== null) applied = `Applied: analogue ${a.toFixed(2)}x` + (d !== null ? ` × digital ${d.toFixed(2)}x` : "");
+        const t = typeof md.ExposureTime === "number" ? md.ExposureTime : null;
+        if (t !== null || a !== null)
+          applied = "Effective on the sensor: " + [t !== null ? `exposure ${t.toLocaleString("en")} µs` : "",
+            a !== null ? `analogue gain ${a.toFixed(2)}x` : ""].filter(Boolean).join(", ");
+        appliedDigital = d !== null ? `Digital gain ${d.toFixed(2)}x: applied in software (ISP) to the preview and `
+          + "JPEG only, no effect on the raw images" : "";
         if (!auto) return;
         if (typeof md.ExposureTime === "number") exposure = md.ExposureTime;
         if (a !== null) gain = gainSteps ? nearestStep(a) : Math.round(a * 100) / 100;
@@ -163,6 +169,7 @@
   <input id="digital" type="number" min="1" max={DIGITAL_MAX} step="0.1" disabled={ae} bind:value={digital} onchange={apply} />
 </div>
 <p class="note" data-testid="applied">{applied}</p>
+<p class="note" data-testid="applied-digital">{appliedDigital}</p>
 <p class="note" data-testid="limits">Limits in this mode: exposure {fmtLimit(limits.expMin)} to {fmtLimit(limits.expMax)} µs,
   analogue gain {gainSteps ? gainSteps.map((g) => `${g}x`).join(", ") : gainFixed ? `fixed at ${fmtLimit(limits.gainMin)}` : `${fmtLimit(limits.gainMin)} to ${fmtLimit(limits.gainMax)}`},
   digital gain 1 to {DIGITAL_MAX}. libcamera uses analogue gain first, up to the maximum, then digital gain
