@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Sensor mode, auto exposure, exposure time, analogue and digital gain (sliders and number fields).
+  // Sensor mode, auto exposure, exposure time and gain (sliders and number fields).
   import { api } from "../lib/api";
   import { live, reloadInfo } from "../lib/live.svelte";
   import AllControls from "../components/AllControls.svelte";
@@ -10,10 +10,8 @@
 
   let ae = $state(true);
   let exposure = $state(10000);   // us
-  let gain = $state(1);
-  let digital = $state(1);       // ISP digital gain on top of the analogue gain
-  let applied = $state("");        // what the camera applies to the sensor (raw frames)
-  let appliedDigital = $state("");
+  let gain = $state(1);           // the total gain asked for: analogue, then digital (see splitGain)
+  let applied = $state("");        // the exposure and gains the camera applies (frame metadata)
   const DIGITAL_MAX = 4;          // libcamera's AGC max_digital_gain (tuning file default)
   let remember = $state(false);
   let msg = $state(""), error = $state(false);
@@ -26,15 +24,31 @@
 
   // 12-bit modes of some sensors have a fixed gain: min equals max, nothing to slide
   const gainFixed = $derived(limits.gainMax - limits.gainMin < 0.01);
-  // The analogue gains the sensor has, when libcamera lists them (a sensor with discrete gain steps):
-  // the slider then steps through these values; otherwise it covers the range continuously
+  // The analogue gains the sensor has, when libcamera lists them (a sensor with discrete gain steps)
   let gainSteps = $state<number[] | null>(null);
   const nearestStep = (g: number) => gainSteps!.reduce((a, b) => (Math.abs(b - g) < Math.abs(a - g) ? b : a));
-  const gainIndex = $derived(gainSteps ? gainSteps.indexOf(nearestStep(gain)) : 0);
-  // libcamera has no digital gain control: it is asked for a total gain and fills the analogue gain
-  // first, up to its maximum. So a digital gain above 1 only exists with the analogue gain at its
-  // maximum; below that the digital gain is 1 and the analogue gain is sent as it is
-  const atGainMax = $derived(gain >= limits.gainMax - 1e-3);
+  // One gain: libcamera has no digital gain control. It is asked for a total gain and fills the
+  // analogue gain first, up to its maximum; the rest (up to DIGITAL_MAX more) is digital gain in the
+  // ISP. Below the analogue maximum the gain snaps to the sensor's steps (when libcamera lists them)
+  const gainTop = $derived(limits.gainMax * DIGITAL_MAX);
+  function snapGain(g: number) {
+    if (!Number.isFinite(g)) return limits.gainMin;
+    g = Math.min(gainTop, Math.max(limits.gainMin, g));
+    if (g < limits.gainMax - 1e-3) return gainSteps ? nearestStep(g) : Math.round(g * 100) / 100;
+    return Math.round(g * 100) / 100;
+  }
+  const splitGain = (g: number) => {
+    const a = g < limits.gainMax - 1e-3 ? (gainSteps ? nearestStep(g) : g) : limits.gainMax;
+    return { analogue: a, digital: g / a };
+  };
+  const splitText = (g: number) => {
+    const s = splitGain(g);
+    return s.digital > 1.005 ? `= ${fmtLimit(s.analogue)}x analogue × ${fmtLimit(s.digital)}x digital (ISP)`
+      : `= ${fmtLimit(s.analogue)}x analogue`;
+  };
+  // Gain slider on a log scale: 0..1000 -> gainMin..gainTop
+  const gainToSlider = (g: number) => 1000 * Math.log(g / limits.gainMin) / Math.log(gainTop / limits.gainMin);
+  const gainFromSlider = (p: number) => limits.gainMin * Math.pow(gainTop / limits.gainMin, p / 1000);
   const fmtLimit = (x: number) => (Math.abs(x) >= 100 ? Math.round(x).toLocaleString("en") : String(Math.round(x * 100) / 100));
 
   function say(text: string, isError = false) { msg = text; error = isError; }
@@ -60,13 +74,16 @@
     if (!ae) {
       const md = await api.metadata();
       if (typeof md.ExposureTime === "number") exposure = md.ExposureTime;
-      if (typeof md.AnalogueGain === "number") gain = Math.round(md.AnalogueGain * 100) / 100;
-      if (typeof md.DigitalGain === "number") digital = Math.round(Math.min(DIGITAL_MAX, Math.max(1, md.DigitalGain)) * 100) / 100;
+      if (typeof md.AnalogueGain === "number") gain = totalOf(md.AnalogueGain, md.DigitalGain);
     }
     exposure = Math.min(limits.expMax, Math.max(limits.expMin, exposure));
-    gain = Math.min(limits.gainMax, Math.max(limits.gainMin, gain));
-    if (gainSteps) gain = nearestStep(gain);
-    if (gain < limits.gainMax - 1e-3) digital = 1;
+    gain = snapGain(gain);
+  }
+
+  // The total gain from what the camera applies: the digital gain counts only with the analogue gain
+  // at its maximum (below that libcamera's digital gain is only a small exposure correction)
+  function totalOf(a: number, d: unknown) {
+    return a >= limits.gainMax - 1e-3 && typeof d === "number" ? a * Math.min(DIGITAL_MAX, Math.max(1, d)) : a;
   }
 
   // The gains the camera applies; with auto exposure on, the fields follow the camera
@@ -79,14 +96,13 @@
         const d = typeof md.DigitalGain === "number" ? md.DigitalGain : null;
         const t = typeof md.ExposureTime === "number" ? md.ExposureTime : null;
         if (t !== null || a !== null)
-          applied = "Effective on the sensor: " + [t !== null ? `exposure ${t.toLocaleString("en")} µs` : "",
-            a !== null ? `analogue gain ${a.toFixed(2)}x` : ""].filter(Boolean).join(", ");
-        appliedDigital = d !== null ? `Digital gain ${d.toFixed(2)}x: applied in software (ISP) to the preview and `
-          + "JPEG only, no effect on the raw images" : "";
+          applied = "Applied: " + [t !== null ? `exposure ${t.toLocaleString("en")} µs` : "",
+            a !== null ? `analogue gain ${a.toFixed(2)}x (sensor)` : "",
+            d !== null ? `digital gain ${d.toFixed(2)}x (ISP: preview and JPEG only, not the raw images)` : ""]
+            .filter(Boolean).join(", ");
         if (!auto) return;
         if (typeof md.ExposureTime === "number") exposure = md.ExposureTime;
-        if (a !== null) gain = gainSteps ? nearestStep(a) : Math.round(a * 100) / 100;
-        if (d !== null) digital = Math.round(Math.min(DIGITAL_MAX, Math.max(1, d)) * 100) / 100;
+        if (a !== null) gain = snapGain(totalOf(a, d));
       } catch { /* shown by the status line */ }
     }, 500);
     return () => clearInterval(id);
@@ -96,13 +112,11 @@
     // A typed value outside the limits is brought back into them
     const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(x) ? x : lo));
     exposure = clamp(exposure, limits.expMin, limits.expMax);
-    gain = clamp(gain, limits.gainMin, limits.gainMax);
-    if (gainSteps) gain = nearestStep(gain);
-    digital = atGainMax ? clamp(digital, 1, DIGITAL_MAX) : 1;
+    gain = snapGain(gain);
     const v: Record<string, unknown> = { AeEnable: ae };
-    // The total gain is sent (see atGainMax): libcamera applies the part above the analogue
+    // The total gain goes to libcamera's AnalogueGain: it applies the part above the analogue
     // maximum as digital gain in the ISP
-    if (!ae) { v.ExposureTime = Math.round(exposure); v.AnalogueGain = Math.round(gain * digital * 1000) / 1000; }
+    if (!ae) { v.ExposureTime = Math.round(exposure); v.AnalogueGain = Math.round(gain * 1000) / 1000; }
     try {
       const r = await api.setControls(v, remember);
       say("Set " + r.set.join(", ") + (r.remembered ? " (kept after a restart)" : ""));
@@ -162,32 +176,19 @@
 </div>
 
 <div class="row">
-  <label for="gain">Analogue gain</label>
-  {#if gainSteps}
-    <input type="range" min="0" max={gainSteps.length - 1} step="1" disabled={ae} value={gainIndex}
-      oninput={(e) => (gain = gainSteps![Number((e.target as HTMLInputElement).value)])} onchange={apply} />
-    <span id="gain" data-testid="gain-value">{fmtLimit(gainSteps[gainIndex])}x</span>
-  {:else}
-    <input type="range" min={limits.gainMin} max={limits.gainMax} step="0.05" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
-    <input id="gain" type="number" min={limits.gainMin} max={limits.gainMax} step="0.1" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
-  {/if}
+  <label for="gain">Gain</label>
+  <input type="range" min="0" max="1000" disabled={ae} value={gainToSlider(gain)}
+    oninput={(e) => (gain = snapGain(gainFromSlider(Number((e.target as HTMLInputElement).value))))} onchange={apply} />
+  <input id="gain" type="number" min={limits.gainMin} max={gainTop} step="0.1" disabled={ae} bind:value={gain} onchange={apply} />
 </div>
-<div class="row">
-  <label for="digital">Digital gain</label>
-  <input type="range" min="1" max={DIGITAL_MAX} step="0.05" disabled={ae || !atGainMax} bind:value={digital} onchange={apply} />
-  <input id="digital" type="number" min="1" max={DIGITAL_MAX} step="0.1" disabled={ae || !atGainMax} bind:value={digital} onchange={apply} />
-</div>
-{#if !ae && !atGainMax}
-  <p class="note" data-testid="digital-note">Digital gain is available with the analogue gain at its maximum
-    ({fmtLimit(limits.gainMax)}x): libcamera uses the analogue gain first.</p>
-{/if}
+<p class="note" data-testid="gain-split">{splitText(gain)}</p>
 <p class="note" data-testid="applied">{applied}</p>
-<p class="note" data-testid="applied-digital">{appliedDigital}</p>
-<p class="note" data-testid="limits">Limits in this mode: exposure {fmtLimit(limits.expMin)} to {fmtLimit(limits.expMax)} µs,
+<p class="note" data-testid="limits">Limits in this mode: exposure {fmtLimit(limits.expMin)} to {fmtLimit(limits.expMax)} µs;
   analogue gain {gainSteps ? gainSteps.length <= 12 ? gainSteps.map((g) => `${fmtLimit(g)}x`).join(", ")
     : `${fmtLimit(gainSteps[0])} to ${fmtLimit(gainSteps[gainSteps.length - 1])} in ${gainSteps.length} steps` : gainFixed ? `fixed at ${fmtLimit(limits.gainMin)}` : `${fmtLimit(limits.gainMin)} to ${fmtLimit(limits.gainMax)}`},
-  digital gain 1 to {DIGITAL_MAX}. libcamera uses analogue gain first, up to the maximum, then digital gain
-  (ISP only: raw frames, DNG/TIFF and noise figures are not scaled by it).</p>
+  then digital gain up to {DIGITAL_MAX}x more ({fmtLimit(gainTop)}x in total). libcamera fills the analogue gain
+  first; the digital gain is applied in software by the ISP to the preview and JPEG only (raw frames, DNG/TIFF and
+  noise figures are not scaled by it).</p>
 
 <div class="row">
   <span></span>
