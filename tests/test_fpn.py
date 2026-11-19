@@ -57,3 +57,14 @@ def test_real_directory_at_the_link_is_left_alone(dirs):
     with pytest.raises(RuntimeError):
         fpn.set_enabled(False)
     assert link.is_dir()
+
+
+def test_column_offsets_keep_the_phase_means():
+    """Like libcamera: per row parity, column mean minus the mean of its CFA phase."""
+    import numpy as np
+    frame = np.full((4, 6), 100.0)
+    frame[:, 2] += 6          # one even column higher
+    frame[1::2, :] += 50      # odd rows: another black level, no column pattern
+    off = fpn.column_offsets(frame)
+    assert off.shape == (2, 6)
+    assert np.allclose(off[:, 2], 4) and np.allclose(off[:, [0, 4]], -2) and np.allclose(off[:, 1::2], 0)

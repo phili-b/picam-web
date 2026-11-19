@@ -262,6 +262,12 @@ class Camera:
             return self._get("/api/fpn")
         return self._request("PUT", "/api/fpn", body={"enabled": bool(enabled)}, timeout=60)
 
+    def calibrate_fpn(self, frames=16):
+        """Capture new FPN maps with the sensor's electrical black readout (no lens cover needed):
+        frames (at least 10) per analogue gain at the current exposure. Only when fpn()['can_calibrate'].
+        Returns the maps written, with their mean and column FPN in 16-bit DN."""
+        return self._request("POST", "/api/fpn/calibrate", body={"frames": int(frames)}, timeout=600)
+
     # Tuning ------------------------------------------------------------------------------------
     def tuning(self):
         return self._get("/api/tuning")

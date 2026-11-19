@@ -150,10 +150,16 @@ def set_mode(index: int = Body(..., embed=True)):
     return {"mode": index, "rois": service.rois()}
 
 
-@app.get("/api/fpn", summary="FPN (dark frame) correction: {available, enabled}; available needs PICAM_FPN_DIR "
-                             "and PICAM_FPN_LINK")
+@app.get("/api/fpn", summary="FPN (dark frame) correction: {available, enabled, can_calibrate}; available needs "
+                             "PICAM_FPN_DIR and PICAM_FPN_LINK")
 def fpn_get():
-    return fpn.status()
+    return _fpn_status()
+
+
+def _fpn_status():
+    """fpn.status() plus can_calibrate: the sensor has an electrical black readout (no lens cover needed)."""
+    model = service.picam2.camera_properties.get("Model", "")
+    return {**fpn.status(), "can_calibrate": fpn.can_calibrate(model)}
 
 
 @app.put("/api/fpn", summary="Turn the FPN correction on or off (the camera is configured again, as for a mode switch)")
@@ -165,7 +171,20 @@ def fpn_set(enabled: bool = Body(..., embed=True)):
     except Exception as e:  # noqa: BLE001 - libcamera errors: report them, the monitor recovers the camera
         log.exception("FPN switch failed")
         _unavailable(f"switching the FPN correction failed: {e}")
-    return fpn.status()
+    return _fpn_status()
+
+
+@app.post("/api/fpn/calibrate", summary="Capture new FPN maps with the sensor's electrical black readout (no lens "
+                                        "cover needed): frames per analogue gain, at the current exposure")
+def fpn_calibrate(frames: int = Body(16, embed=True, ge=fpn.MIN_FRAMES, le=256)):
+    try:
+        result = service.calibrate_fpn(frames)
+    except ValueError as e:
+        _bad(e)
+    except Exception as e:  # noqa: BLE001 - libcamera or I2C errors: report them, the monitor recovers the camera
+        log.exception("FPN calibration failed")
+        _unavailable(f"the FPN calibration failed: {e}")
+    return {**result, **_fpn_status()}
 
 
 @app.get("/api/frames", summary="Frame counter, measured/expected fps, dropped frames, the raw area the "

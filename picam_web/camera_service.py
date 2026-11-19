@@ -231,6 +231,68 @@ class CameraService:
             if controls:
                 self.set_controls(controls)
 
+    def calibrate_fpn(self, frames=16):
+        """Capture new FPN maps with the sensor's electrical black readout (no need to cover the lens):
+        average `frames` raw frames at every analogue gain, at the current exposure, and store them
+        (fpn.write_maps). libcamera corrects only the ISP input, never the raw stream, so this works with
+        the correction on or off. The camera is then configured again, which loads the new maps; the
+        controls set are kept."""
+        model = str(self.picam2.camera_properties.get("Model", "")).lower()
+        eb = fpn.electrical_black(model)
+        if eb is None or not fpn.status()["available"]:
+            raise ValueError(f"FPN calibration is not available for {model or 'this sensor'}")
+        if frames < fpn.MIN_FRAMES:
+            raise ValueError(f"at least {fpn.MIN_FRAMES} frames")
+        reg, value, gains = eb
+        with self.lock:   # nothing else may change the camera meanwhile
+            controls = dict(self.requested)
+            # what was set (the metadata lags it), else what auto exposure chose
+            exposure = int(controls.get("ExposureTime") or self.metadata.get("ExposureTime") or 10000)
+            try:
+                self.capture_request().release()   # the sensor does not answer on I2C right at stream start
+                self.regs.write(reg, value)
+                maps = {code: (self._average_frames(frames, exposure, gain), gain) for code, gain in gains.items()}
+                comment = f"exposure_us {exposure} frames {frames} electrical_black 0x{reg:04x}={value}"
+                paths = fpn.write_maps(model, maps, comment)
+            finally:
+                try:
+                    self.regs.write(reg, 0)
+                finally:
+                    self.configure(self.mode_index)   # also loads the new maps
+                    if controls:
+                        self.set_controls(controls)
+        return {"sensor": model, "frames": frames, "exposure_us": exposure,
+                "maps": [{"gain_code": code, "gain": gain, "mean": round(float(maps[code][0].mean()), 2),
+                          "column_fpn": round(float(fpn.column_offsets(maps[code][0]).std()), 2), "path": path}
+                         for (code, gain), path in zip(sorted(gains.items()), paths)]}
+
+    def _average_frames(self, count, exposure, gain):
+        """Mean of count raw frames at a fixed exposure and gain, in the values of the 16-bit raw stream
+        (what libcamera's maps hold, not shifted to the sensor's bit depth). Hold self.lock."""
+        fmt, (w, h), _, _ = self.raw_info()
+        if analysis.bit_depth(fmt) != 16:
+            raise ValueError(f"raw format {fmt}: the FPN maps need a 16-bit unpacked raw stream (Pi 5)")
+        self.picam2.set_controls({"AeEnable": False, "ExposureTime": exposure, "AnalogueGain": gain})
+        # Frames already in the buffer queue were read out before a register write (the electrical
+        # black): skip a full queue plus 2 frames once the gain is right
+        skip = self.picam2.camera_config.get("buffer_count", 4) + 2
+        settled, total, n = 0, np.zeros((h, w)), 0
+        for _ in range(count + skip + 40):
+            request = self.capture_request()
+            try:
+                md = request.get_metadata()
+                if settled < skip:
+                    settled = settled + 1 if abs(md.get("AnalogueGain", 0) - gain) < 0.05 * gain else 0
+                else:
+                    total += request.make_array("raw").view(np.uint16)[:h, :w]
+                    n += 1
+            finally:
+                request.release()
+            health.sd_notify("WATCHDOG=1")   # the lock is held for long, but frames come in
+            if n == count:
+                return total / n
+        raise RuntimeError(f"the analogue gain did not settle at {gain}")
+
     # Health and recovery ------------------------------------------------------------------
     @property
     def error(self):

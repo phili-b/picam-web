@@ -115,6 +115,15 @@ export interface CameraOverlay {
 export interface Fpn {
   available: boolean;
   enabled: boolean;
+  /** the sensor has an electrical black readout: new maps can be captured without covering the lens */
+  can_calibrate: boolean;
+}
+
+export interface FpnCalibration extends Fpn {
+  sensor: string;
+  frames: number;
+  exposure_us: number;
+  maps: { gain_code: number; gain: number; mean: number; column_fpn: number; path: string }[];
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -213,6 +222,7 @@ export const api = {
   setTuning: (path: string | null) => post<{ instance: string }>("/api/tuning", { path }),
   fpn: () => get<Fpn>("/api/fpn"),
   setFpn: (enabled: boolean) => put<Fpn>("/api/fpn", { enabled }),
+  calibrateFpn: (frames: number) => post<FpnCalibration>("/api/fpn/calibrate", { frames }),
   cameraOverlay: () => get<CameraOverlay>("/api/camera_overlay"),
   setCameraOverlay: (overlay: string, port: "cam0" | "cam1", mono: boolean) =>
     put<CameraOverlay>("/api/camera_overlay", { overlay, port, mono }),
