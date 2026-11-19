@@ -26,9 +26,11 @@
 
   // 12-bit modes of some sensors have a fixed gain: min equals max, nothing to slide
   const gainFixed = $derived(limits.gainMax - limits.gainMin < 0.01);
-  // Sensors with a few discrete analogue gains (e.g. 1, 2, 3): a list instead of the slider
-  const gainSteps = $derived(live.info?.analogue_gain_steps ?? null);
+  // The analogue gains the sensor has, when libcamera lists them (a sensor with discrete gain steps):
+  // the slider then steps through these values; otherwise it covers the range continuously
+  let gainSteps = $state<number[] | null>(null);
   const nearestStep = (g: number) => gainSteps!.reduce((a, b) => (Math.abs(b - g) < Math.abs(a - g) ? b : a));
+  const gainIndex = $derived(gainSteps ? gainSteps.indexOf(nearestStep(gain)) : 0);
   const fmtLimit = (x: number) => (Math.abs(x) >= 100 ? Math.round(x).toLocaleString("en") : String(Math.round(x * 100) / 100));
 
   function say(text: string, isError = false) { msg = text; error = isError; }
@@ -44,6 +46,8 @@
       expMax: Math.min(num(c.ExposureTime?.max, 1_000_000), num(mode?.[1], Infinity)),
       gainMin: num(c.AnalogueGain?.min, 1), gainMax: num(c.AnalogueGain?.max, 16),
     };
+    const steps = (c.AnalogueGain?.values ?? []).filter((v): v is number => typeof v === "number");
+    gainSteps = steps.length > 1 ? steps : null;
     // Some modes report a nonsense gain maximum (an overflowed 1e28): use a sane one then
     if (!Number.isFinite(limits.gainMax) || limits.gainMax > 1000) limits.gainMax = Math.max(16, limits.gainMin);
     ae = Boolean(c.AeEnable?.value ?? c.AeEnable?.default ?? true);
@@ -155,9 +159,9 @@
 <div class="row">
   <label for="gain">Analogue gain</label>
   {#if gainSteps}
-    <select id="gain" disabled={ae} bind:value={gain} onchange={apply}>
-      {#each gainSteps as g}<option value={g}>{g}x</option>{/each}
-    </select>
+    <input type="range" min="0" max={gainSteps.length - 1} step="1" disabled={ae} value={gainIndex}
+      oninput={(e) => (gain = gainSteps![Number((e.target as HTMLInputElement).value)])} onchange={apply} />
+    <span id="gain" data-testid="gain-value">{fmtLimit(gainSteps[gainIndex])}x</span>
   {:else}
     <input type="range" min={limits.gainMin} max={limits.gainMax} step="0.05" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
     <input id="gain" type="number" min={limits.gainMin} max={limits.gainMax} step="0.1" disabled={ae || gainFixed} bind:value={gain} onchange={apply} />
@@ -171,7 +175,8 @@
 <p class="note" data-testid="applied">{applied}</p>
 <p class="note" data-testid="applied-digital">{appliedDigital}</p>
 <p class="note" data-testid="limits">Limits in this mode: exposure {fmtLimit(limits.expMin)} to {fmtLimit(limits.expMax)} µs,
-  analogue gain {gainSteps ? gainSteps.map((g) => `${g}x`).join(", ") : gainFixed ? `fixed at ${fmtLimit(limits.gainMin)}` : `${fmtLimit(limits.gainMin)} to ${fmtLimit(limits.gainMax)}`},
+  analogue gain {gainSteps ? gainSteps.length <= 12 ? gainSteps.map((g) => `${fmtLimit(g)}x`).join(", ")
+    : `${fmtLimit(gainSteps[0])} to ${fmtLimit(gainSteps[gainSteps.length - 1])} in ${gainSteps.length} steps` : gainFixed ? `fixed at ${fmtLimit(limits.gainMin)}` : `${fmtLimit(limits.gainMin)} to ${fmtLimit(limits.gainMax)}`},
   digital gain 1 to {DIGITAL_MAX}. libcamera uses analogue gain first, up to the maximum, then digital gain
   (ISP only: raw frames, DNG/TIFF and noise figures are not scaled by it).</p>
 

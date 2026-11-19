@@ -67,9 +67,15 @@ def test_page_and_static(client):
     assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
 
 
+def test_control_values_come_from_libcamera(client):
+    """A control lists the values libcamera allows (menus here); a continuous one has none."""
+    c = client.get("/api/controls").json()
+    assert c["AeMeteringMode"]["values"] == [0, 1, 2, 3]
+    assert c["AnalogueGain"]["values"] is None and c["AnalogueGain"]["max"] == 16.0
+
+
 def test_info_controls_metadata(client):
     info = client.get("/api/info").json()
-    assert info["analogue_gain_steps"] is None   # the fake sensor takes any gain
     assert info["properties"]["Model"] == "fakecam" and info["raw"]["size"] == [640, 480]
     assert info["instance"] and len(info["sensor_modes"]) == 2
     controls = client.get("/api/controls").json()

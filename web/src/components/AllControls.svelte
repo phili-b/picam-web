@@ -27,10 +27,14 @@
     ? `Range ${fmt(c.min)} to ${fmt(c.max)}` + (c.default != null ? `, default ${fmt(c.default)}` : "") + "."
     : "");
 
-  // The values of an enum this camera allows; the camera reports them as a min..max range
+  // The values of an enum this camera allows: the list libcamera gives, else its min..max range
   const options = (c: Control, names: string[]) => names
     .map((label, value) => ({ label, value }))
-    .filter((o) => (typeof c.min !== "number" || o.value >= c.min) && (typeof c.max !== "number" || o.value <= c.max));
+    .filter((o) => (c.values ? c.values.includes(o.value)
+      : (typeof c.min !== "number" || o.value >= c.min) && (typeof c.max !== "number" || o.value <= c.max)));
+  // Other controls for which libcamera lists the allowed values: a list of them
+  const listed = (c: Control) => (c.values && c.values.length > 1 && c.values.every((v) => typeof v === "number")
+    ? (c.values as number[]) : null);
 
   async function load() {
     const all = await api.controls();
@@ -77,12 +81,17 @@
             onchange={(e) => (edits[name] = (e.target as HTMLSelectElement).value)}>
             {#each options(c, i.options) as o}<option value={o.value}>{o.label}</option>{/each}
           </select>
+        {:else if listed(c)}
+          <select id="ctl-{name}" value={current(c)}
+            onchange={(e) => (edits[name] = (e.target as HTMLSelectElement).value)}>
+            {#each listed(c)! as v}<option value={v}>{fmt(v)}</option>{/each}
+          </select>
         {:else}
           <input id="ctl-{name}" value={shown(c)} placeholder={isArray(c) ? "a, b, ..." : ""}
             onchange={(e) => (edits[name] = (e.target as HTMLInputElement).value)} />
         {/if}
       </div>
-      <p class="note help">{i.help} {i.options ? "" : range(c)} <code>{name}</code></p>
+      <p class="note help">{i.help} {i.options || listed(c) ? "" : range(c)} <code>{name}</code></p>
     {/each}
   {/if}
 {/each}

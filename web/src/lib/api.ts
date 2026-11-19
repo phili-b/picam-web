@@ -19,8 +19,6 @@ export interface Info {
   raw: { format: string; size: Size; stride: number };
   main: { format: string; size: Size };
   is_mono: boolean;
-  /** discrete analogue gains of the sensor, or null when any value in the range works */
-  analogue_gain_steps: number[] | null;
   tuning_file: string | null;
   sensor: string | null;
   version: string;
@@ -56,6 +54,8 @@ export interface Control {
   min: unknown;
   max: unknown;
   default: unknown;
+  /** the values libcamera allows (menus, a sensor's discrete analogue gains), or null: the range */
+  values: unknown[] | null;
   value: unknown;
 }
 
