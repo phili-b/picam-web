@@ -106,9 +106,9 @@ needs some setup; without it `available` is false and the web UI hides the switc
 
 | Method | Path | Parameters | Response |
 |--------|------|------------|----------|
-| GET | `/api/fpn` | | `{"available", "enabled", "can_calibrate"}` |
-| PUT | `/api/fpn` | body: `{"enabled": true}` | as GET, after the camera was configured again (like `POST /api/mode`, the controls set are kept); 400 if not available, 503 if the camera fails |
-| POST | `/api/fpn/calibrate` | body: `{"frames": 16}` (10-256) | `{"sensor", "frames", "exposure_us", "maps": [{"gain_code", "gain", "mean", "column_fpn", "path"}]}` plus the GET fields; 400 if `can_calibrate` is false |
+| GET | `/api/fpn` | | `{"available", "enabled", "mode", "can_calibrate", "last_calibration"}`; `mode` is `column` or `full`, `last_calibration` what the last calibrate returned (also the automatic one at start) or null |
+| PUT | `/api/fpn` | body: `{"enabled": true}` and/or `{"mode": "full"}` | as GET, after the camera was configured again (like `POST /api/mode`, the controls set are kept); 400 if not available or an unknown mode, 503 if the camera fails |
+| POST | `/api/fpn/calibrate` | body: `{"frames": 16, "electrical_black": true}` (frames 10-256) | `{"sensor", "frames", "exposure_us", "source", "auto", "time", "maps": [{"gain_code", "gain", "mean", "column_fpn", "path"}]}` plus the GET fields; 400 if `can_calibrate` is false |
 
 libcamera reads the dark frames from `<dir>/<sensor model>/gain_<code>.pgm`, where `<dir>` is the
 `fpn_dark_frame_dir` of its pipeline config file (`LIBCAMERA_RPI_CONFIG_FILE`). That file is read once per
@@ -129,16 +129,21 @@ Environment=PICAM_FPN_LINK=/home/pi/fpn-active
 The state is the link itself, so it survives a restart: create it once (`ln -s /home/pi/fpn
 /home/pi/fpn-active`) for FPN on at boot, or leave it out for off. A real directory at the link path is
 never touched. With the correction off, libcamera logs a warning at every configure that it found no dark
-frame; with it on it logs `FPN dark frames for <sensor>: gain codes ...` and turns PiSP raw compression off.
+frame; with it on it logs `FPN dark frames for <sensor>: gain codes ..., column correction` (or `full frame
+correction`) and turns PiSP raw compression off. The mode is the file `<dir>/fpn_mode` (`column`, the default,
+or `full`), which libcamera also reads on every configure.
 The correction is applied to the ISP input only: raw frames (captures, DNG, noise figures, histograms)
 are never corrected, with the correction on or off.
 
 **Calibration.** For sensors with an electrical black readout (`can_calibrate`, at present the poncha110) the
 service captures the dark frames itself, with the lens open: electrical black reads the pixels without
 transferring their charge, so the frame sees no light but has the column pattern of a dark frame. `POST
-/api/fpn/calibrate` sets electrical black (poncha110: register 0x0017 = 2, PIX_TG
+/api/fpn/calibrate` (and the service by itself at every start, as the pattern of the poncha110 can change with
+each power-up of the sensor) sets electrical black (poncha110: register 0x0017 = 2, PIX_TG
 low; 1 and 3, PIX_RST high, change the column pattern), averages `frames` raw frames at every analogue gain at
-the current exposure, and writes `<PICAM_FPN_DIR>/<sensor>/gain_<code>.pgm`. The maps there before are moved to
+the current exposure, and writes `<PICAM_FPN_DIR>/<sensor>/gain_<code>.pgm`. Electrical black maps hold the
+column pattern only (the pixels are read without their charge), so for the `full` mode calibrate with
+`"electrical_black": false`: normal dark frames, with the light off or the lens covered. The maps there before are moved to
 `<sensor>.previous`. It then sets the register back to 0 and configures the camera again, which loads the new
 maps (the correction can stay on: the raw frames it averages are not corrected). libcamera uses only the
 column pattern of a map. On the poncha110 that pattern can be different after each power-up of the sensor

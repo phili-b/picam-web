@@ -115,14 +115,22 @@ export interface CameraOverlay {
 export interface Fpn {
   available: boolean;
   enabled: boolean;
+  /** what libcamera subtracts: the column pattern of the maps or the full frame */
+  mode: "column" | "full";
   /** the sensor has an electrical black readout: new maps can be captured without covering the lens */
   can_calibrate: boolean;
+  /** the last calibration of the service (also the automatic one at start), or null */
+  last_calibration: FpnCalibration | null;
 }
 
-export interface FpnCalibration extends Fpn {
+export interface FpnCalibration {
   sensor: string;
   frames: number;
   exposure_us: number;
+  source: "electrical black" | "dark frame";
+  auto: boolean;
+  time: number;      // s since the epoch
+  error?: string;    // a failed automatic calibration
   maps: { gain_code: number; gain: number; mean: number; column_fpn: number; path: string }[];
 }
 
@@ -221,8 +229,9 @@ export const api = {
   tuning: () => get<{ current: string | null; files: string[] }>("/api/tuning"),
   setTuning: (path: string | null) => post<{ instance: string }>("/api/tuning", { path }),
   fpn: () => get<Fpn>("/api/fpn"),
-  setFpn: (enabled: boolean) => put<Fpn>("/api/fpn", { enabled }),
-  calibrateFpn: (frames: number) => post<FpnCalibration>("/api/fpn/calibrate", { frames }),
+  setFpn: (change: { enabled?: boolean; mode?: Fpn["mode"] }) => put<Fpn>("/api/fpn", change),
+  calibrateFpn: (frames: number, electrical_black = true) =>
+    post<FpnCalibration & Fpn>("/api/fpn/calibrate", { frames, electrical_black }),
   cameraOverlay: () => get<CameraOverlay>("/api/camera_overlay"),
   setCameraOverlay: (overlay: string, port: "cam0" | "cam1", mono: boolean) =>
     put<CameraOverlay>("/api/camera_overlay", { overlay, port, mono }),

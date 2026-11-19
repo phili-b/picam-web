@@ -11,6 +11,9 @@ config names a symlink, and this module creates or removes it:
 On: LINK -> DIR. Off: no LINK, libcamera finds no dark frames and corrects nothing. The state is the
 link itself, so it survives a restart. Without both variables the feature is not available.
 
+The mode is the file DIR/fpn_mode: "column" (libcamera subtracts the column pattern of the maps, the
+default) or "full" (the whole map). libcamera reads it on every configure too.
+
 Sensors with an electrical black readout (ELECTRICAL_BLACK) can be calibrated without covering the lens:
 CameraService.calibrate_fpn captures the maps with it and write_maps stores them.
 """
@@ -25,14 +28,39 @@ def _paths():
     return os.environ.get("PICAM_FPN_DIR"), os.environ.get("PICAM_FPN_LINK")
 
 
+MODES = ("column", "full")
+
+
 def status():
-    """{"available", "enabled"}; available needs both variables, the calibration directory, and a
+    """{"available", "enabled", "mode"}; available needs both variables, the calibration directory, and a
     link path that is free or already a symlink (a real directory there is never touched)."""
     calibration, link = _paths()
     if not (calibration and link and os.path.isdir(calibration)) or (os.path.lexists(link) and not os.path.islink(link)):
-        return {"available": False, "enabled": False}
+        return {"available": False, "enabled": False, "mode": "column"}
     enabled = os.path.islink(link) and os.path.realpath(link) == os.path.realpath(calibration)
-    return {"available": True, "enabled": enabled}
+    return {"available": True, "enabled": enabled, "mode": get_mode()}
+
+
+def get_mode():
+    """The correction mode in the calibration directory: "column" (also without the file) or "full"."""
+    calibration, _ = _paths()
+    try:
+        with open(os.path.join(calibration, "fpn_mode")) as f:
+            word = f.read().strip()
+    except (OSError, TypeError):
+        return "column"
+    return word if word in MODES else "column"
+
+
+def set_mode(mode):
+    """Write the correction mode. The camera must be configured again afterwards."""
+    if mode not in MODES:
+        raise ValueError(f"FPN mode {mode!r}: one of {', '.join(MODES)}")
+    if not status()["available"]:
+        raise RuntimeError("FPN correction is not set up (see PICAM_FPN_DIR and PICAM_FPN_LINK)")
+    calibration, _ = _paths()
+    with open(os.path.join(calibration, "fpn_mode"), "w") as f:
+        f.write(mode + "\n")
 
 
 def set_enabled(enabled):
@@ -50,8 +78,10 @@ def set_enabled(enabled):
         os.unlink(link)
 
 
-# Calibration with electrical black ---------------------------------------------------------------
-# Sensors with an electrical black readout: (register, value, {gain code: analogue gain}).
+# Calibration ------------------------------------------------------------------------------------
+# Sensors that can be calibrated: (electrical black register, value, {gain code: analogue gain}).
+# Electrical black maps hold the column pattern only (the pixels are read without their charge), so they
+# suit the column mode; for the full frame mode calibrate with dark frames (light off or lens covered).
 # poncha110: PIX_CTRL_ELECTRICAL_BLACK, value 2 = PIX_TG low during readout. The photodiode charge is
 # never transferred, so the frame does not see light, but it goes through the normal column readout and
 # has the same column pattern as a dark frame. Values 1 and 3 (PIX_RST high) change the column pattern

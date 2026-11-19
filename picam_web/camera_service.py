@@ -178,6 +178,8 @@ class CameraService:
             except (KeyError, ValueError, RuntimeError, TypeError) as e:
                 log.warning("could not restore controls: %s", e)
         threading.Thread(target=self._monitor, daemon=True).start()
+        self.fpn_calibration = None   # the last FPN calibration: what calibrate_fpn returned, or an error
+        threading.Thread(target=self._auto_calibrate_fpn, daemon=True).start()
         health.sd_notify("READY=1")
         interval = health.watchdog_interval()
         if interval:
@@ -231,11 +233,44 @@ class CameraService:
             if controls:
                 self.set_controls(controls)
 
-    def calibrate_fpn(self, frames=16):
-        """Capture new FPN maps with the sensor's electrical black readout (no need to cover the lens):
-        average `frames` raw frames at every analogue gain, at the current exposure, and store them
-        (fpn.write_maps). libcamera corrects only the ISP input, never the raw stream, so this works with
-        the correction on or off. The camera is then configured again, which loads the new maps; the
+    AUTO_CALIBRATION_FRAMES = 16
+
+    def _auto_calibrate_fpn(self):
+        """At every start, calibrate the FPN with electrical black once frames come in: the column
+        pattern of some sensors (poncha110) changes with each power-up of the sensor."""
+        model = str(self.picam2.camera_properties.get("Model", "")).lower()
+        if not fpn.can_calibrate(model):
+            return
+        deadline = time.monotonic() + 60
+        while self.health.state != "streaming":
+            if time.monotonic() > deadline:
+                log.warning("FPN auto calibration skipped: the camera does not stream")
+                return
+            time.sleep(0.5)
+        try:
+            self.calibrate_fpn(self.AUTO_CALIBRATION_FRAMES, auto=True)
+            log.info("FPN auto calibration done")
+        except Exception as e:  # noqa: BLE001 - the service must start anyway
+            log.warning("FPN auto calibration failed: %s", e)
+            self.fpn_calibration = {"auto": True, "error": str(e), "time": time.time()}
+
+    def set_fpn_mode(self, mode):
+        """Column or full frame correction (fpn.set_mode); the camera is configured again, keeping the
+        controls."""
+        with self.lock:
+            fpn.set_mode(mode)
+            controls = dict(self.requested)
+            self.configure(self.mode_index)
+            if controls:
+                self.set_controls(controls)
+
+    def calibrate_fpn(self, frames=16, electrical_black=True, auto=False):
+        """Capture new FPN maps: average `frames` raw frames at every analogue gain, at the current
+        exposure, and store them (fpn.write_maps). With electrical_black the sensor reads its pixels
+        without their charge, so the lens can stay open; these maps hold the column pattern. Without it
+        the frames are normal dark frames (switch the light off or cover the lens first), for the full
+        frame mode. libcamera corrects only the ISP input, never the raw stream, so this works with the
+        correction on or off. The camera is then configured again, which loads the new maps; the
         controls set are kept."""
         model = str(self.picam2.camera_properties.get("Model", "")).lower()
         eb = fpn.electrical_black(model)
@@ -251,21 +286,27 @@ class CameraService:
             exposure = int(manual or self.metadata.get("ExposureTime") or 10000)
             try:
                 self.capture_request().release()   # the sensor does not answer on I2C right at stream start
-                self.regs.write(reg, value)
+                if electrical_black:
+                    self.regs.write(reg, value)
                 maps = {code: (self._average_frames(frames, exposure, gain), gain) for code, gain in gains.items()}
-                comment = f"exposure_us {exposure} frames {frames} electrical_black 0x{reg:04x}={value}"
-                paths = fpn.write_maps(model, maps, comment)
+                source = f"electrical_black 0x{reg:04x}={value}" if electrical_black else "dark_frame"
+                paths = fpn.write_maps(model, maps, f"exposure_us {exposure} frames {frames} {source}")
             finally:
                 try:
-                    self.regs.write(reg, 0)
+                    if electrical_black:
+                        self.regs.write(reg, 0)
                 finally:
                     self.configure(self.mode_index)   # also loads the new maps
                     if controls:
                         self.set_controls(controls)
-        return {"sensor": model, "frames": frames, "exposure_us": exposure,
-                "maps": [{"gain_code": code, "gain": gain, "mean": round(float(maps[code][0].mean()), 2),
-                          "column_fpn": round(float(fpn.column_offsets(maps[code][0]).std()), 2), "path": path}
-                         for (code, gain), path in zip(sorted(gains.items()), paths)]}
+        result = {"sensor": model, "frames": frames, "exposure_us": exposure,
+                  "source": "electrical black" if electrical_black else "dark frame", "auto": auto,
+                  "time": time.time(),
+                  "maps": [{"gain_code": code, "gain": gain, "mean": round(float(maps[code][0].mean()), 2),
+                            "column_fpn": round(float(fpn.column_offsets(maps[code][0]).std()), 2), "path": path}
+                           for (code, gain), path in zip(sorted(gains.items()), paths)]}
+        self.fpn_calibration = result
+        return result
 
     def _average_frames(self, count, exposure, gain):
         """Mean of count raw frames at a fixed exposure and gain, in the values of the 16-bit raw stream
