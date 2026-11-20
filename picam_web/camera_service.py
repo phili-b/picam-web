@@ -29,7 +29,15 @@ log = logging.getLogger("picam_web")
 
 SETTINGS_FILE = os.path.expanduser("~/.config/picam_web.json")
 STREAM_FPS = 30          # JPEG preview rate (the sensor may run faster)
-STREAM_WIDTH = 960       # width of the preview / JPEG stream
+# Preview (MJPEG) quality: the width of the main stream (None: the sensor mode's width, no rescaling),
+# the JPEG quality and the chroma subsampling. Stream rates for a noisy 1080 x 1082 scene at 30 fps:
+# standard 37, high 98, max 151 Mbit/s.
+PREVIEW_QUALITIES = {
+    "standard": {"width": 960, "q": 80, "subsampling": "420"},
+    "high": {"width": None, "q": 90, "subsampling": "444"},
+    "max": {"width": None, "q": 95, "subsampling": "444"},
+}
+DEFAULT_PREVIEW_QUALITY = "standard"
 MAX_CAPTURE_BYTES = 1 << 30   # raw frames kept in memory for one capture (the Pi has 2-8 GB)
 STALL_TIMEOUT = 10.0     # s without a frame before recovering (long exposures go up to ~6.6 s)
 LAUNCHER = None         # command that restarts the service (tests/fake/run_fake.py sets it)
@@ -142,6 +150,8 @@ class CameraService:
         self.lock = threading.RLock()
         settings = load_settings()
         self.tuning_file = tuning_file or settings.get("tuning_file")
+        quality = settings.get("preview_quality")
+        self.preview_quality = quality if quality in PREVIEW_QUALITIES else DEFAULT_PREVIEW_QUALITY
         tuning = Picamera2.load_tuning_file(self.tuning_file) if self.tuning_file else None
         self.picam2 = Picamera2(camera, tuning=tuning)
         self.stream = StreamingOutput()
@@ -196,7 +206,8 @@ class CameraService:
                 self.encoder = None
             self.picam2.stop()
             w, h = mode["size"]
-            sw = min(STREAM_WIDTH, w) & ~1
+            preview = PREVIEW_QUALITIES[self.preview_quality]
+            sw = min(preview["width"] or w, w) & ~1
             sh = int(sw * h / w) & ~1
             config = self.picam2.create_video_configuration(
                 main={"size": (sw, sh)},
@@ -208,7 +219,7 @@ class CameraService:
             self.picam2.configure(config)
             self.picam2.post_callback = self._on_request
             self.picam2.start()
-            self.encoder = JpegEncoder(q=80)
+            self.encoder = JpegEncoder(q=preview["q"], colour_subsampling=preview["subsampling"])
             skip = max(1, round(mode["fps"] / STREAM_FPS))
             if hasattr(self.encoder, "frame_skip_count"):
                 self.encoder.frame_skip_count = skip
@@ -423,6 +434,21 @@ class CameraService:
                 stored = {k: v for k, v in stored.items() if k not in WHITE_BALANCE}
             settings["controls"] = {**stored, **controls}
         save_settings(settings)
+
+    def set_preview_quality(self, quality):
+        """Preview quality (PREVIEW_QUALITIES), stored for the next start. The camera is configured again
+        (the stream size can change); the controls set are kept."""
+        if quality not in PREVIEW_QUALITIES:
+            raise ValueError(f"preview quality {quality!r}: one of {', '.join(PREVIEW_QUALITIES)}")
+        with self.lock:
+            self.preview_quality = quality
+            settings = load_settings()
+            settings["preview_quality"] = quality
+            save_settings(settings)
+            controls = dict(self.requested)
+            self.configure(self.mode_index)
+            if controls:
+                self.set_controls(controls)
 
     def forget_controls(self):
         """Start with the default controls next time."""

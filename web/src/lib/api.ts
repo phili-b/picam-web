@@ -191,6 +191,12 @@ export interface BankSelect {
 const query = (params: Record<string, number | null>) =>
   Object.entries(params).filter(([, v]) => v !== null).map(([k, v]) => `${k}=${v}`).join("&");
 
+/** Preview (MJPEG) quality: the current one and the choices (width null: the sensor mode's width). */
+export interface PreviewQuality {
+  quality: string;
+  qualities: Record<string, { width: number | null; q: number; subsampling: string }>;
+}
+
 export const api = {
   info: () => get<Info>("/api/info"),
   health: () => get<Health>("/api/health"),
@@ -205,6 +211,8 @@ export const api = {
   forgetControls: () => request<unknown>("DELETE", "/api/controls/remembered"),
   metadata: () => get<Record<string, unknown>>("/api/metadata"),
   setMode: (index: number) => post<{ mode: number; rois: Roi[] }>("/api/mode", { index }),
+  preview: () => get<PreviewQuality>("/api/preview"),
+  setPreview: (quality: string) => post<PreviewQuality>("/api/preview", { quality }),
   tuning: () => get<{ current: string | null; files: string[] }>("/api/tuning"),
   setTuning: (path: string | null) => post<{ instance: string }>("/api/tuning", { path }),
   cameraOverlay: () => get<CameraOverlay>("/api/camera_overlay"),

@@ -25,7 +25,7 @@ on the preview pans it, two fingers pinch to zoom (the page scrolls from the pan
 | pinch (touch) | zoom in or out around the fingers; lift one finger to pan on |
 | double-tap (touch) | fit the whole frame |
 
-The preview is the ISP-processed image (MJPEG, at most 960 pixels wide, about 30 fps). Zoomed in to
+The preview is the ISP-processed image (MJPEG, about 30 fps). **Preview quality** (Controls tab) sets its size and compression: standard (960 pixels wide, JPEG 80, 4:2:0, about 40 Mbit/s), high (the full width of the sensor mode, JPEG 90, 4:4:4, about 100 Mbit/s) or max (JPEG 95, about 150 Mbit/s); the rates are for a noisy scene at 30 fps. The service keeps the choice. Zoomed in to
 6 or more screen pixels per raw pixel, the raw pixels themselves are drawn (grey, from the raw frame
 in DN), from 14 with a pixel grid and from 34 with each pixel's value. The bar under the preview
 shows the zoom and the raw position under the cursor, with its value in DN when zoomed in. The raw

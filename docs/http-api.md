@@ -96,6 +96,8 @@ whose plugin profile has a banked register map (context 0 up to the number of co
 
 | Method | Path | Parameters | Response |
 |--------|------|------------|----------|
+| GET | `/api/preview` | | `{"quality": "standard" | "high" | "max", "qualities": {name: {"width": px or null (the sensor mode's width), "q": JPEG quality, "subsampling": "420" or "444"}}}` |
+| POST | `/api/preview` | body: `{"quality": "high"}` | the same as GET; the camera is configured again (the stream size can change), the controls are kept and the choice is stored for the next start; 400 for an unknown name |
 | GET | `/api/tuning` | | `{"current": path or null, "files": [installed tuning files for this platform]}` |
 | POST | `/api/tuning` | body: `{"path": "/usr/share/libcamera/ipa/rpi/pisp/<file>.json"}`, or `{"path": null}` for the sensor's default file | 202 `{"restarting": true, "tuning_file": path, "instance": ...}`; the service checks that the file loads for this sensor (400 if not) and restarts with it a moment later |
 

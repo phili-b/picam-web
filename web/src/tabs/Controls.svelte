@@ -7,6 +7,7 @@
   import TuningFile from "../components/TuningFile.svelte";
   import CameraModel from "../components/CameraModel.svelte";
   import DenoiseProfile from "../components/DenoiseProfile.svelte";
+  import PreviewQuality from "../components/PreviewQuality.svelte";
 
   let ae = $state(true);
   let exposure = $state(10000);   // us
@@ -160,6 +161,8 @@
     {/each}
   </select>
 </div>
+
+<PreviewQuality />
 
 <DenoiseProfile />
 

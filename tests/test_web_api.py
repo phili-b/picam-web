@@ -117,6 +117,24 @@ def test_mode_switch(client):
     wait_for(lambda: client.get("/api/health").json()["state"] == "streaming")
 
 
+def test_preview_quality(client):
+    """Standard by default; another quality configures the camera again, keeps the controls and is stored."""
+    svc = server.service
+    p = client.get("/api/preview").json()
+    assert p["quality"] == "standard" and set(p["qualities"]) == {"standard", "high", "max"}
+    client.post("/api/controls", json={"ExposureTime": 7000, "AeEnable": False})
+    r = client.post("/api/preview", json={"quality": "max"})
+    assert r.status_code == 200 and r.json()["quality"] == "max"
+    assert svc.encoder.q == 95 and camera_service.load_settings()["preview_quality"] == "max"
+    assert svc.requested["ExposureTime"] == 7000
+    assert client.post("/api/preview", json={"quality": "best"}).status_code == 400
+    wait_for(lambda: svc.health.state == "streaming")
+    assert client.get("/api/snapshot.jpg").content[:2] == b"\xff\xd8"
+    client.post("/api/preview", json={"quality": "standard"})
+    client.post("/api/controls", json={"AeEnable": True})
+    wait_for(lambda: svc.health.state == "streaming")
+
+
 def test_frames_and_reset(client):
     wait_for(lambda: client.get("/api/frames").json()["frames"] > 3)
     f = client.post("/api/frames/reset").json()
