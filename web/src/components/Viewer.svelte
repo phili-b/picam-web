@@ -3,8 +3,9 @@
   // Shift+drag to draw a ROI. Zoomed in far enough, the raw pixels themselves are drawn (from
   // /api/raw/crop, in DN) with a grid and their values. All drawing happens in one
   // requestAnimationFrame loop outside Svelte's rendering, so mouse moves never re-render the page.
+  import { untrack } from "svelte";
   import { api, type RawCrop } from "../lib/api";
-  import { every, live } from "../lib/live.svelte";
+  import { live } from "../lib/live.svelte";
 
   const RAW_IMAGE_FROM = 6;     // screen px per raw pixel from which the raw crop is drawn
   const GRID_FROM = 14;         // ... the pixel grid
@@ -57,9 +58,15 @@
   function resize() {
     const r = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(r.width * dpr));
-    canvas.height = Math.max(1, Math.round(r.height * dpr));
+    const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    // Setting the canvas size clears it: only when it changed, and draw again at once, or the
+    // browser can show a black frame
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
     if (fitted) fit();
+    draw();
   }
 
   function zoomAt(x: number, y: number, factor: number) {
@@ -296,30 +303,25 @@
       if (!signal.aborted) await new Promise((r) => setTimeout(r, 1000));
     }
   }
-  // A hidden page (background tab, locked phone) does not receive the stream: the service keeps
-  // encoding for the other clients only. It connects again when the page is shown.
   $effect(() => {
-    let ctl: AbortController | null = null;
-    const onVisibility = () => {
-      ctl?.abort();
-      ctl = null;
-      if (document.visibilityState === "visible") { ctl = new AbortController(); readStream(ctl.signal); }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    onVisibility();
-    return () => { document.removeEventListener("visibilitychange", onVisibility); ctl?.abort(); };
+    const ctl = new AbortController();
+    readStream(ctl.signal);
+    return () => ctl.abort();
   });
 
-  $effect(() => {
+  // Set up once: untracked, so the live state read while setting up (fetchCrop and draw read
+  // live.info and live.frames) does not make Svelte run this again on every poll, which cleared the
+  // canvas (a black frame) once a second
+  $effect(() => untrack(() => {
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(container);
     let raf = 0;
     const loop = () => { draw(); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
-    const stopCrop = every(fetchCrop, 250);
-    return () => { cancelAnimationFrame(raf); stopCrop(); ro.disconnect(); };
-  });
+    const cropTimer = setInterval(fetchCrop, 250);
+    return () => { cancelAnimationFrame(raf); clearInterval(cropTimer); ro.disconnect(); };
+  }));
 </script>
 
 <div class="viewer" bind:this={container}>

@@ -193,6 +193,18 @@ class Picamera2:
                 "SystemDevices": (20749, 20750)}
 
     @property
+    def camera_ctrl_info(self):
+        """(id, info) per control like picamera2; info.values lists the allowed values of menu
+        controls (the fake's analogue gain is continuous, as on most sensors)."""
+        class Info:
+            def __init__(self, values):
+                self.values = values
+        menus = {"AeMeteringMode": 4, "AeConstraintMode": 4, "AeExposureMode": 4, "AeFlickerMode": 2,
+                 "NoiseReductionMode": 5, "AwbMode": 8}
+        return {name: (None, Info(list(range(menus[name])) if name in menus else []))
+                for name in self.camera_controls}
+
+    @property
     def camera_controls(self):
         crop = tuple(self._mode["crop_limits"])
         c = {

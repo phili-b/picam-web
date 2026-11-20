@@ -29,7 +29,15 @@ log = logging.getLogger("picam_web")
 
 SETTINGS_FILE = os.path.expanduser("~/.config/picam_web.json")
 STREAM_FPS = 30          # JPEG preview rate (the sensor may run faster)
-STREAM_WIDTH = 960       # width of the preview / JPEG stream
+# Preview (MJPEG) quality: the width of the main stream (None: the sensor mode's width, no rescaling),
+# the JPEG quality and the chroma subsampling. Stream rates for a noisy 1080 x 1082 scene at 30 fps:
+# standard 37, high 98, max 151 Mbit/s.
+PREVIEW_QUALITIES = {
+    "standard": {"width": 960, "q": 80, "subsampling": "420"},
+    "high": {"width": None, "q": 90, "subsampling": "444"},
+    "max": {"width": None, "q": 95, "subsampling": "444"},
+}
+DEFAULT_PREVIEW_QUALITY = "standard"
 MAX_CAPTURE_BYTES = 1 << 30   # raw frames kept in memory for one capture (the Pi has 2-8 GB)
 STALL_TIMEOUT = 10.0     # s without a frame before recovering (long exposures go up to ~6.6 s)
 LAUNCHER = None         # command that restarts the service (tests/fake/run_fake.py sets it)
@@ -142,17 +150,18 @@ class CameraService:
         self.lock = threading.RLock()
         settings = load_settings()
         self.tuning_file = tuning_file or settings.get("tuning_file")
+        quality = settings.get("preview_quality")
+        self.preview_quality = quality if quality in PREVIEW_QUALITIES else DEFAULT_PREVIEW_QUALITY
         tuning = Picamera2.load_tuning_file(self.tuning_file) if self.tuning_file else None
         self.picam2 = Picamera2(camera, tuning=tuning)
         self.stream = StreamingOutput()
         self.frame_stats = analysis.FrameStats()
         self.live = live.LiveView(self.picam2, rate=4, set_overlay=lambda overlay: None)
         self.live.show_pixels = False
-        self.live.show_rois = False    # the browser draws the ROIs: no overlay image per analysed frame
-        # The histogram and the raw copy for crops are only made while a client asks for them
-        # (see ON_DEMAND): analysing a full raw frame in the camera callback slows a small Pi down
+        self.live.histogram_enabled = True
+        self.live.keep_last = True   # raw crops (pixel values when zoomed in) without a capture
         self.metadata = {}
-        self.requested = {}   # controls set through set_controls: the metadata lags them by several frames
+        self.requested = {}   # the controls last set, for those the metadata does not report
         self.isp_stats = None
         self.isp_stats_count = 0
         self.encoder = None
@@ -197,7 +206,8 @@ class CameraService:
                 self.encoder = None
             self.picam2.stop()
             w, h = mode["size"]
-            sw = min(STREAM_WIDTH, w) & ~1
+            preview = PREVIEW_QUALITIES[self.preview_quality]
+            sw = min(preview["width"] or w, w) & ~1
             sh = int(sw * h / w) & ~1
             config = self.picam2.create_video_configuration(
                 main={"size": (sw, sh)},
@@ -209,14 +219,13 @@ class CameraService:
             self.picam2.configure(config)
             self.picam2.post_callback = self._on_request
             self.picam2.start()
-            self.encoder = JpegEncoder(q=80)
+            self.encoder = JpegEncoder(q=preview["q"], colour_subsampling=preview["subsampling"])
             skip = max(1, round(mode["fps"] / STREAM_FPS))
             if hasattr(self.encoder, "frame_skip_count"):
                 self.encoder.frame_skip_count = skip
             self.picam2.start_encoder(self.encoder, FileOutput(self.stream), name="main")
             self.mode_index = mode_index
             self.frame_stats.reset()
-            self.requested = {}   # a new configuration starts with the default controls
             self.started = time.monotonic()
             self.health.set("starting", f"Starting sensor mode {mode['unpacked']} {w}x{h}")
 
@@ -347,11 +356,6 @@ class CameraService:
             md = request.get_metadata()
             self.frame_stats.update(md)
             self.metadata = md
-            # The sensor rate follows the exposure (a long exposure gives few frames a second): skip
-            # frames by the rate it runs at now, not by the mode's maximum, or the preview stalls
-            fps = self.frame_stats.expected_fps
-            if fps and self.encoder is not None and hasattr(self.encoder, "frame_skip_count"):
-                self.encoder.frame_skip_count = max(1, round(fps / STREAM_FPS))
             self.live.process(request)
             stats = isp_stats.decode(md) if self.isp_stats_on else None
             if stats:
@@ -394,12 +398,16 @@ class CameraService:
         })
 
     def controls(self):
+        """Every libcamera control: min, max, default, value, and values when libcamera lists the
+        values it allows (menus, or a sensor's discrete analogue gains); null otherwise."""
         md = self.metadata
+        infos = getattr(self.picam2, "camera_ctrl_info", None) or {}
         out = {}
         for name, (lo, hi, default) in self.picam2.camera_controls.items():
-            # What was set, else what the camera reports: the metadata lags a new value by several
-            # frames (seconds with long exposures) and has no AeEnable
-            out[name] = {"min": lo, "max": hi, "default": default, "value": self.requested.get(name, md.get(name))}
+            values = list(infos[name][1].values) if name in infos else []
+            # Metadata has many controls only on the frame they change: fall back on what was set
+            out[name] = {"min": lo, "max": hi, "default": default, "values": values or None,
+                         "value": md.get(name, self.requested.get(name))}
         return jsonable(out)
 
     def set_controls(self, controls):
@@ -411,9 +419,6 @@ class CameraService:
             clean[name] = tuple(value) if isinstance(value, list) else value
         self.picam2.set_controls(clean)
         self.requested.update(clean)
-        if self.requested.get("AeEnable"):   # auto exposure chooses them again: report the camera's values
-            self.requested.pop("ExposureTime", None)
-            self.requested.pop("AnalogueGain", None)
         return list(clean)
 
     def remember(self, controls=None):
@@ -429,6 +434,21 @@ class CameraService:
                 stored = {k: v for k, v in stored.items() if k not in WHITE_BALANCE}
             settings["controls"] = {**stored, **controls}
         save_settings(settings)
+
+    def set_preview_quality(self, quality):
+        """Preview quality (PREVIEW_QUALITIES), stored for the next start. The camera is configured again
+        (the stream size can change); the controls set are kept."""
+        if quality not in PREVIEW_QUALITIES:
+            raise ValueError(f"preview quality {quality!r}: one of {', '.join(PREVIEW_QUALITIES)}")
+        with self.lock:
+            self.preview_quality = quality
+            settings = load_settings()
+            settings["preview_quality"] = quality
+            save_settings(settings)
+            controls = dict(self.requested)
+            self.configure(self.mode_index)
+            if controls:
+                self.set_controls(controls)
 
     def forget_controls(self):
         """Start with the default controls next time."""
@@ -538,13 +558,7 @@ class CameraService:
                 "roi": list(roi) if roi else None}
 
     # Live analysis -------------------------------------------------------------------------
-    ON_DEMAND = 3.0   # s the live analysis keeps running after a client asked for it
-
     def histogram(self):
-        now = time.monotonic()
-        if now >= self.live.histogram_until:   # nobody asked for a while: what is stored is old
-            self.live.histogram = None
-        self.live.histogram_until = now + self.ON_DEMAND
         h = self.live.histogram
         if not h:
             return {"error": self.live.error or "no histogram yet"}
@@ -575,10 +589,6 @@ class CameraService:
     def raw_crop(self, x, y, w, h):
         """Pixel values (DN) of a raw area of the latest analysed frame (updated 4 times a second).
         No capture: cheap enough for every pan or zoom of the viewer."""
-        now = time.monotonic()
-        if now >= self.live.keep_until:   # nobody asked for a while: the stored frame is old
-            self.live.last_image = None
-        self.live.keep_until = now + self.ON_DEMAND
         last = self.live.last_image
         if last is None:
             raise RuntimeError(self.live.error or "no analysed frame yet")

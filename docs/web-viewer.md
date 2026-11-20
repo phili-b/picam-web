@@ -25,7 +25,7 @@ on the preview pans it, two fingers pinch to zoom (the page scrolls from the pan
 | pinch (touch) | zoom in or out around the fingers; lift one finger to pan on |
 | double-tap (touch) | fit the whole frame |
 
-The preview is the ISP-processed image (MJPEG, at most 960 pixels wide, about 30 fps). Zoomed in to
+The preview is the ISP-processed image (MJPEG, about 30 fps). **Preview quality** (Controls tab) sets its size and compression: standard (960 pixels wide, JPEG 80, 4:2:0, about 40 Mbit/s), high (the full width of the sensor mode, JPEG 90, 4:4:4, about 100 Mbit/s) or max (JPEG 95, about 150 Mbit/s); the rates are for a noisy scene at 30 fps. The service keeps the choice. Zoomed in to
 6 or more screen pixels per raw pixel, the raw pixels themselves are drawn (grey, from the raw frame
 in DN), from 14 with a pixel grid and from 34 with each pixel's value. The bar under the preview
 shows the zoom and the raw position under the cursor, with its value in DN when zoomed in. The raw
@@ -38,9 +38,10 @@ values are those of the last analysed frame (4 per second).
 | Item | |
 |------|-|
 | Sensor mode | format, size, bit depth and maximum fps; switching restarts the camera |
-| Auto exposure | on: exposure and gain follow the camera; off: set them by hand. The tab shows what you set again when you come back to it (the service remembers the values you set) |
-| Exposure [µs], Analogue gain | slider (exposure on a log scale) or number; applied when released. The limits are those of the current sensor mode (its exposure range, narrowed to what libcamera reports) and follow a mode switch; a typed value outside them is brought back into range. The limits in force are printed under the fields. A mode with a fixed gain (minimum equals maximum, e.g. the 12-bit modes of some sensors) disables the gain slider |
-| Digital gain | 1x to 4x on top of the analogue gain; the total gain is sent and libcamera uses analogue gain first, up to the mode maximum, then digital gain in the ISP. It only scales the processed preview and JPEG, not the raw frames, DNG/TIFF or noise figures. The gains the camera actually applies are shown under the sliders. The 4x maximum is libcamera's `max_digital_gain` (tuning file default) |
+| Denoise profile | only shown when the sensor has tuning files named `<sensor model>_tdn_<profile>.json` (for the poncha110: light, medium, strong, max, from the ams-OSRAM libcamera fork): restarts the camera with that tuning file, as the Tuning file section does, because libcamera reads the denoise settings only when the camera opens. off goes back to the default tuning. It is the temporal denoise of the processed image (preview, JPEG), not of the raw frames; a stronger profile follows movement more slowly |
+| Auto exposure | on: exposure and gain follow the camera; off: set them by hand |
+| Exposure [µs], Gain | slider (on a log scale) or number; applied when released. The limits are those of the current sensor mode (its exposure range, narrowed to what libcamera reports) and follow a mode switch; a typed value outside them is brought back into range. The limits in force are printed under the fields. With auto exposure off, the fields show what the camera applies, also after a tab switch |
+| Gain | one slider for the total gain. libcamera has no digital gain control: it is asked for a total gain and fills the analogue gain first, up to the mode maximum; the rest, up to 4x more (libcamera's `max_digital_gain`, tuning file default), is digital gain in the ISP. Below the analogue maximum the slider snaps to the analogue gains the sensor has when libcamera lists them (sensors with discrete gain steps, e.g. the poncha110: 1x, 2x, 3x; the ams-OSRAM libcamera fork reports them). Under the slider: the split (e.g. 3x analogue x 1.5x digital) and the exposure, analogue and digital gain the camera actually applies (frame metadata). The digital gain is applied in software to the preview and JPEG only, not to the raw frames, DNG/TIFF or noise figures |
 | keep after restart | also store the controls, so the service starts with them next time |
 | Forget kept controls | the next start uses the defaults again |
 | White balance (colour cameras) | **Auto white balance** (on at start): the camera estimates the light, and **Illuminant** limits its search to one kind of light. Off: the current gains are kept and can be changed with **Red gain** and **Blue gain** (green stays at 1x). The values the camera applies are shown underneath. Applied in the ISP: raw frames are not changed |
@@ -66,9 +67,7 @@ See [Raw data](raw-data.md) for the formats.
 
 The live histogram of the raw frame (R, G and B for Bayer sensors, one line for mono sensors), with
 mean, min and max in DN. Drag over the plot to zoom into a range, double-click to zoom out;
-logarithmic or linear counts. The service only analyses the frames for the histogram while this
-tab is open (about 3 s after the last request), and the counts come from every 4th pixel in x and
-y, scaled to the whole frame.
+logarithmic or linear counts.
 
 **ISP statistics** (Raspberry Pi 5): switch them on to see the ISP's own AGC histogram, its 32x32
 zone means and its 8x8 focus figure of merit.
@@ -111,22 +110,6 @@ Results go to the log below. Writes bypass the driver; see [Registers](registers
 The service also recovers by itself when frames stop for 10 s (so exposures up to the sensor
 maximum, about 6.6 s, are not cut off): it restarts the stream, then reopens the
 camera, then reports *failed* with **Reset camera** and **Reboot Pi** buttons in the banner.
-
-## Performance on small Pis
-
-The UI is meant to stay light for a Raspberry Pi 3 or a Pi Zero 2 W, where the service shares the
-CPU with the camera:
-
-- one poll a second for health, frame counters and ROI means; the open tab adds at most one more
-  request a second (two for the histogram)
-- a page that is not visible (background tab, locked phone) makes no requests and drops the MJPEG
-  stream; it connects again when it is shown
-- the Histograms tab, with its plot library, is loaded when it is first opened; the service
-  computes the histogram, and keeps a copy of the raw frame for the zoomed-in pixel values, only
-  for about 3 s after a client asked for them
-- the ROIs are drawn by the browser, the service makes no overlay image
-- the MJPEG preview is 960 px wide at up to 30 fps (`STREAM_WIDTH`, `STREAM_FPS` in
-  `picam_web/camera_service.py`): lower them if a small Pi cannot keep up
 
 ## Classic UI
 

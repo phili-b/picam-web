@@ -1,9 +1,6 @@
 <script lang="ts">
   // The live raw histogram, and the ISP's own statistics (Raspberry Pi 5) when switched on.
-  // It asks the service for data only while this tab is open and the page visible: the service
-  // computes the histogram only for about 3 s after each request.
   import { api, type Histogram, type IspStats } from "../lib/api";
-  import { every } from "../lib/live.svelte";
   import HistogramPlot from "../components/HistogramPlot.svelte";
   import Heatmap from "../components/Heatmap.svelte";
 
@@ -15,7 +12,7 @@
   async function refresh() {
     try {
       raw = await api.histogram();
-      if (isp === null || isp.enabled) isp = await api.ispStats();   // once, to see if it is on
+      isp = await api.ispStats();
       error = "";
     } catch (e) { error = (e as Error).message; }
   }
@@ -25,7 +22,11 @@
     try { await api.enableIspStats(on); await refresh(); } catch (err) { error = (err as Error).message; }
   }
 
-  $effect(() => every(refresh, 500));
+  $effect(() => {
+    refresh();
+    const timer = setInterval(refresh, 400);
+    return () => clearInterval(timer);
+  });
 </script>
 
 <h3>Raw histogram</h3>

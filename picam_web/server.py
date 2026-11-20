@@ -136,6 +136,23 @@ def metadata():
     return camera_service.metadata_json(service.metadata)
 
 
+@app.get("/api/preview", summary="Preview (MJPEG) quality: the current one and the choices")
+def preview():
+    return {"quality": service.preview_quality, "qualities": camera_service.PREVIEW_QUALITIES}
+
+
+@app.post("/api/preview", summary="Set the preview quality (standard, high, max); stored for the next start")
+def set_preview(quality: str = Body(..., embed=True)):
+    try:
+        service.set_preview_quality(quality)
+    except ValueError as e:
+        _bad(e)
+    except Exception as e:  # noqa: BLE001 - libcamera errors: report them, the monitor recovers the camera
+        log.exception("preview quality switch failed")
+        _unavailable(f"switching the preview quality failed: {e}")
+    return preview()
+
+
 @app.post("/api/mode", summary="Switch sensor mode (index into /api/info sensor_modes)")
 def set_mode(index: int = Body(..., embed=True)):
     if not 0 <= index < len(service.picam2.sensor_modes):
